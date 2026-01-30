@@ -28,7 +28,7 @@ export enum RhythmPattern {
   TANGO = 'Tango'
 }
 
-export type DelayDivision = '1/4' | '1/4D' | '1/4T' | '1/8' | '1/8D' | '1/8T' | '1/16' | '1/16D' | '1/16T' | '1/3' | '1/5';
+export type DelayDivision = '1/2' | '1/4' | '1/4D' | '1/8' | '1/8D' | '5/16' | '5/8' | '7/8' | '1/4T' | '1/8T' | '1/16T';
 export type WaveformType = 'square' | 'sawtooth' | 'triangle' | 'sine';
 
 export interface MidiDevice {

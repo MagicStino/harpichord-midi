@@ -154,7 +154,7 @@ const ControlPanel: React.FC<ControlPanelProps> = ({ state, onChange, onReset })
     let enabled = true;
     switch(preset) {
       case 'clean': enabled = false; drive = 0; wet = 0; break;
-      case 'soft': drive = 0.05; wet = 0.25; break; // V5.03: Extra subtle Soft setting
+      case 'soft': drive = 0.05; wet = 0.25; break; 
       case 'warm': drive = 0.45; wet = 0.5; break;
       case 'hot': drive = 0.85; wet = 0.7; break;
     }
@@ -252,7 +252,6 @@ const ControlPanel: React.FC<ControlPanelProps> = ({ state, onChange, onReset })
                 ))}
               </div>
               <div className="grid grid-cols-2 gap-4 justify-items-center">
-                {/* V6.01: Touching the drive knob now automatically turns the tube ON */}
                 <Knob label="DRIVE" size="sm" color="orange-500" value={state.tubeDrive} onChange={(v) => onChange({ tubeDrive: v, tubeEnabled: true })} />
                 <Knob label="WET" size="sm" color="orange-500" value={state.tubeWet} onChange={(v) => onChange({ tubeWet: v })} />
               </div>
@@ -284,9 +283,10 @@ const ControlPanel: React.FC<ControlPanelProps> = ({ state, onChange, onReset })
             <div className="bg-[#1a1a1a] p-4 rounded-3xl border-2 border-cyan-500/50 space-y-4">
               <div className="flex flex-col gap-2">
                  <h3 className="text-[11px] text-cyan-400 font-black uppercase tracking-widest italic">DELAY</h3>
-                 <div className="grid grid-cols-5 gap-1">
-                    {['1/4', '1/4D', '1/4T', '1/8', '1/8D', '1/8T', '1/16', '1/16D', '1/16T', '1/3', '1/5'].map(div => (
-                      <button key={div} onClick={() => onChange({ delayDivision: div as DelayDivision })} className={`px-1 py-2 rounded text-[11px] font-black border-2 transition-all ${state.delayDivision === div ? 'bg-cyan-500 text-black border-cyan-400' : 'text-cyan-500 border-cyan-900/30'}`}>{div}</button>
+                 <div className="grid grid-cols-4 gap-1">
+                    {/* V6.04 Updated Delay Divisions */}
+                    {['1/2', '1/4', '1/4D', '1/8', '1/8D', '5/16', '5/8', '7/8', '1/4T', '1/8T', '1/16T'].map(div => (
+                      <button key={div} onClick={() => onChange({ delayDivision: div as DelayDivision })} className={`px-1 py-2 rounded text-[12px] font-black border-2 transition-all ${state.delayDivision === div ? 'bg-cyan-500 text-black border-cyan-400 shadow-[0_0_10px_rgba(6,182,212,0.4)]' : 'text-cyan-500 border-cyan-900/30'}`}>{div}</button>
                     ))}
                  </div>
               </div>
@@ -346,7 +346,6 @@ const ControlPanel: React.FC<ControlPanelProps> = ({ state, onChange, onReset })
         ) : (
           <div className="flex flex-col h-full bg-[#1a1a1a] p-4 rounded-3xl border-2 border-indigo-500/30 overflow-hidden">
              
-             {/* Sub-tabs for MIDI IO */}
              <div className="flex bg-black/40 rounded-xl p-1 mb-4 border border-indigo-500/10">
                 {(['MIDI OUT', 'MIDI IN', 'MIDI LOG'] as const).map(tab => (
                   <button 

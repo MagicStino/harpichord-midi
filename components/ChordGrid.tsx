@@ -83,8 +83,8 @@ const ChordGrid: React.FC<ChordGridProps> = ({ activeChord, currentPage, onPress
       <div className="flex flex-col gap-1 w-full items-center">
         {rows.map((row, idx) => (
           <div key={idx} className="flex flex-col items-center">
-            {/* Chord Mode Label: 1pt bigger (approx 12px) and increased vertical margin for spacing */}
-            <div className="text-[12px] font-black text-amber-900/60 mt-5 mb-2.5 uppercase tracking-[0.4em] font-sans">
+            {/* V6.02: Chord Mode Label spacing adjusted for better layout breatheability (mt-8 mb-4) */}
+            <div className="text-[12px] font-black text-amber-900/60 mt-8 mb-4 uppercase tracking-[0.4em] font-sans">
               {row.label} Mode
             </div>
             <div className="flex gap-1.5">

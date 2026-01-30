@@ -1,3 +1,4 @@
+
 import { ChordDefinition, RhythmPattern, DelayDivision, WaveformType } from '../types';
 
 interface ActiveOscillator {
@@ -59,7 +60,7 @@ class AudioEngine {
   private activeBassGainSaw: GainNode | null = null;
   
   private sustainValue: number = 0.5;
-  private chordAttack: number = 0.05;
+  private chordAttack: number = 0.01;
   private chordRelease: number = 0.2;
   private tempo: number = 120;
   private rhythmInterval: number | null = null;
@@ -90,9 +91,6 @@ class AudioEngine {
   private makeDistortionCurve(amount: number) {
     const n_samples = 44100;
     const curve = new Float32Array(n_samples);
-    
-    // Amount 0-1. 
-    // V5.03: Lower drive scaling for more subtle transparency on low settings.
     const drive = 1 + amount * 6; 
     const asymmetry = amount * 0.15; 
     
@@ -248,7 +246,6 @@ class AudioEngine {
       this.reverbPanner = reverbPanner;
       this.reverbOutput = reverbOutput;
       
-      // Ramp master gain up gently after context is confirmed running
       if (ctx.state === 'running') {
         this.safeTarget(this.masterGain.gain, 1.0, ctx.currentTime, 0.1);
       }
@@ -320,9 +317,10 @@ class AudioEngine {
   updateDelay(div: DelayDivision, fb: number, tone: number, spread: number) {
     if (!this.delayNodeL || !this.delayNodeR || !this.delayFeedback || !this.delayFilter) return;
     const beatTime = 60 / this.tempo;
+    // V6.04 Updated subdivisions mapping
     const divisions: Record<string, number> = {
-      '1/4': 1, '1/4D': 1.5, '1/4T': 0.666, '1/8': 0.5, '1/8D': 0.75, '1/8T': 0.333,
-      '1/16': 0.25, '1/16D': 0.375, '1/16T': 0.166, '1/3': 0.333, '1/5': 0.2
+      '1/2': 2.0, '1/4': 1.0, '1/4D': 1.5, '1/8': 0.5, '1/8D': 0.75,
+      '5/16': 0.625, '5/8': 2.5, '7/8': 3.5, '1/4T': 0.666, '1/8T': 0.333, '1/16T': 0.166
     };
     const time = beatTime * (divisions[div] || 0.5);
     this.safeTarget(this.delayNodeL.delayTime, time);
@@ -354,7 +352,7 @@ class AudioEngine {
     if (!this.ctx) await this.init();
     if (!this.ctx) return;
     
-    const now = this.ctx.currentTime + 0.01;
+    const now = this.ctx.currentTime;
     
     if (!this.firstChordPlayed) {
       if (this.ctx.state !== 'running') await this.ctx.resume();
@@ -362,7 +360,8 @@ class AudioEngine {
       this.firstChordPlayed = true;
     }
 
-    this.stopChord(true); 
+    // V6.04: Crossfade chords polyphonically. Previous voices ring out with Release time.
+    this.stopChord(false); 
 
     if (this.bassEnabled) {
       const freq = 130.81 * Math.pow(2, this.octaveShift) * Math.pow(2, (chord.intervals[0] - 12) / 12);
@@ -372,7 +371,7 @@ class AudioEngine {
       oscSine.type = 'sine';
       oscSine.frequency.setValueAtTime(freq, now);
       gainSine.gain.setValueAtTime(0, now);
-      this.safeTarget(gainSine.gain, 0.7 * (1 - this.bassWaveformMix), now, this.chordAttack);
+      gainSine.gain.linearRampToValueAtTime(0.7 * (1 - this.bassWaveformMix), now + this.chordAttack);
       oscSine.connect(gainSine);
       if (this.bassSource) gainSine.connect(this.bassSource);
       oscSine.start(now);
@@ -385,7 +384,7 @@ class AudioEngine {
       oscSaw.type = 'sawtooth';
       oscSaw.frequency.setValueAtTime(freq, now);
       gainSaw.gain.setValueAtTime(0, now);
-      this.safeTarget(gainSaw.gain, 0.4 * this.bassWaveformMix, now, this.chordAttack);
+      gainSaw.gain.linearRampToValueAtTime(0.4 * this.bassWaveformMix, now + this.chordAttack);
       oscSaw.connect(lpf); lpf.connect(gainSaw);
       if (this.bassSource) gainSaw.connect(this.bassSource);
       oscSaw.start(now);
@@ -417,7 +416,8 @@ class AudioEngine {
       filter.type = 'lowpass';
       filter.frequency.setValueAtTime(100 + (this.chordCutoff * 5000), now);
       gain.gain.setValueAtTime(0, now);
-      this.safeTarget(gain.gain, 0.25, now, this.chordAttack);
+      // V6.04: Explicit anchor at 0 before linear ramp to Attack value.
+      gain.gain.linearRampToValueAtTime(0.25, now + this.chordAttack);
       osc.connect(filter); filter.connect(gain);
       if (this.chordSource) gain.connect(this.chordSource);
       osc.start(now);
@@ -425,21 +425,28 @@ class AudioEngine {
     });
   }
 
-  stopChord(immediate = false) {
+  stopChord(immediate = false, customRelease?: number) {
     if (!this.ctx) return;
     const now = this.ctx.currentTime;
-    const release = immediate ? 0.01 : this.chordRelease;
+    // V6.04: Use Release knob value for tail fading.
+    const release = customRelease ?? (immediate ? 0.005 : this.chordRelease);
+    
     this.chordOscillators.forEach((active) => {
       active.gain.gain.cancelScheduledValues(now);
-      this.safeTarget(active.gain.gain, 0, now, release);
-      active.osc.stop(now + release * 2);
-      active.lfo?.stop(now + release * 2);
+      // Capture current value to ensure smooth ramp start.
+      active.gain.gain.setValueAtTime(active.gain.gain.value, now);
+      active.gain.gain.linearRampToValueAtTime(0, now + release);
+      active.osc.stop(now + release + 0.1);
+      active.lfo?.stop(now + release + 0.1);
     });
     this.bassOscillators.forEach(({ osc, gain }) => {
       gain.gain.cancelScheduledValues(now);
-      this.safeTarget(gain.gain, 0, now, release);
-      osc.stop(now + release * 2);
+      gain.gain.setValueAtTime(gain.gain.value, now);
+      gain.gain.linearRampToValueAtTime(0, now + release);
+      osc.stop(now + release + 0.1);
     });
+    
+    // Voices ring out in background, but we clear management array for new triggers.
     this.chordOscillators = [];
     this.bassOscillators = [];
   }
@@ -541,7 +548,6 @@ class AudioEngine {
         case RhythmPattern.BOSSA: 
           if (s === 0 || s === 3 || s === 10) this.playDrum('kick'); 
           if (s === 4 || s === 12) this.playDrum('snare'); 
-          // Fixed: typo playTahum corrected to playDrum
           if (s % 4 === 0) this.playDrum('hihat'); 
           break;
         case RhythmPattern.REGGAE: 

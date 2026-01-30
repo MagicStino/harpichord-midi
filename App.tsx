@@ -22,7 +22,7 @@ const INITIAL_STATE: OmnichordState = {
   chordVolume: 0.50,   
   harpVolume: 0.50,    
   rhythmVolume: 0.50,  
-  bassVolume: 0.25, // Updated to 25% startup volume
+  bassVolume: 0.25, 
   sustain: 0.4,
   tempo: 120,
   rhythm: RhythmPattern.NONE,
@@ -79,7 +79,6 @@ const App: React.FC = () => {
 
   const lastZone = useRef<number | null>(null);
   
-  // Rate limiter for incoming MIDI to prevent CPU hang
   const lastMidiTime = useRef<number>(0);
   const midiEventCounter = useRef<number>(0);
 
@@ -179,12 +178,9 @@ const App: React.FC = () => {
       if (state.midiInputId !== 'all' && state.midiInputId !== id) return;
       
       const now = Date.now();
-      // Basic rate limiting: detect abnormal frequency (e.g., feedback loop)
       if (now - lastMidiTime.current < 100) {
         midiEventCounter.current++;
-        if (midiEventCounter.current > 12) { // More than 12 events in 100ms is likely a loop
-          return; 
-        }
+        if (midiEventCounter.current > 12) return; 
       } else {
         midiEventCounter.current = 0;
       }
@@ -252,7 +248,7 @@ const App: React.FC = () => {
   }, [state.useTouchpad, handleHarpTrigger]);
 
   const handleKillChord = useCallback(() => {
-    audioEngine.stopChord(true);
+    audioEngine.stopChord(false);
     audioEngine.stopRhythm();
     midiService.sendChord(null, state.midiChordOutputId, state.midiChordChannel);
     setState(prev => ({ ...prev, currentChord: null, rhythm: RhythmPattern.NONE }));
@@ -266,7 +262,6 @@ const App: React.FC = () => {
       const newState = { ...prev, ...updates };
       localStorage.setItem(STORAGE_KEY, JSON.stringify(newState));
       
-      // Apply updates to the engine immediately
       if (updates.chordVolume !== undefined) audioEngine.setChordVolume(newState.chordVolume);
       if (updates.harpVolume !== undefined) audioEngine.setHarpVolume(newState.harpVolume);
       if (updates.rhythmVolume !== undefined) audioEngine.setRhythmVolume(newState.rhythmVolume);
@@ -399,8 +394,8 @@ const App: React.FC = () => {
               <div className={`w-5 h-5 rounded-full border-2 border-black/40 transition-all duration-700 ${initialized ? 'bg-green-600 shadow-[0_0_20px_rgba(22,163,74,0.6)]' : 'bg-green-950'}`} />
               <div className="w-px h-6 bg-black/15" />
               <div className="flex flex-col">
-                  {/* Updated Version to 6.01 */}
-                  <span className="text-[10px] font-black text-orange-900/60 tracking-[0.2em] uppercase leading-none">V6.01 OMNI_CORE</span>
+                  {/* Updated Version to 6.04 */}
+                  <span className="text-[10px] font-black text-orange-900/60 tracking-[0.2em] uppercase leading-none">V6.04 OMNI_CORE</span>
               </div>
             </div>
             <div className="flex flex-col">
@@ -458,7 +453,8 @@ const App: React.FC = () => {
                 onTrigger={handleHarpTrigger}
                 lastTriggeredIndex={touchpadStrumIndex}
              />
-             <button onClick={() => handleStateChange({ useTouchpad: !state.useTouchpad })} className={`w-[90px] h-[90px] rounded-[2rem] border-[4px] border-black transition-all flex items-center justify-center cursor-pointer shadow-[0_12px_0_#222] active:translate-y-2 active:shadow-none group ${state.useTouchpad ? 'bg-orange-600 border-orange-800' : 'bg-[#1a1a1a] border-[#0a0a0a]'}`}>
+             {/* V6.04: Corrected shadow from 120px to 10px to fix position of black mask */}
+             <button onClick={() => handleStateChange({ useTouchpad: !state.useTouchpad })} className={`w-[90px] h-[90px] rounded-[2rem] border-[4px] border-black transition-all flex items-center justify-center cursor-pointer shadow-[0_10px_0_#000] active:translate-y-2 active:shadow-none group ${state.useTouchpad ? 'bg-orange-600 border-orange-800' : 'bg-[#1a1a1a] border-[#0a0a0a]'}`}>
                 <div className="flex flex-col items-center leading-none text-white group-active:scale-90 transition-transform text-center">
                     <span className={`text-[12px] font-black tracking-widest mb-2 ${state.useTouchpad ? 'text-black' : 'opacity-40'}`}>TOUCH</span>
                     <span className={`text-[12px] font-black tracking-widest ${state.useTouchpad ? 'text-black' : ''}`}>PAD</span>
