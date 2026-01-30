@@ -1,5 +1,6 @@
 
-import { MidiDevice, MidiMessage } from '../types';
+// Fixed: Import MIDI types from local types-1 file to resolve missing member error
+import { MidiDevice, MidiMessage } from './types-1';
 
 export type MidiListener = (message: MidiMessage, deviceId: string) => void;
 

@@ -1,3 +1,4 @@
+
 import React from 'react';
 import { ChordDefinition } from '../types';
 import { 
@@ -47,7 +48,7 @@ const ChordGrid: React.FC<ChordGridProps> = ({ activeChord, currentPage, onPress
   return (
     <div className="flex flex-col items-center w-full">
       {/* RETRO LCD DISPLAY */}
-      <div className="w-[365px] h-[95px] mb-10 bg-[#0a0a0a] rounded-[2rem] border-[4px] border-[#1a1a1a] shadow-[inset_0_4px_10px_rgba(0,0,0,0.9),0_4px_15px_rgba(0,0,0,0.4)] flex flex-col items-center justify-center relative overflow-hidden">
+      <div className="w-[365px] h-[95px] mb-8 bg-[#0a0a0a] rounded-[2rem] border-[4px] border-[#1a1a1a] shadow-[inset_0_4px_10px_rgba(0,0,0,0.9),0_4px_15px_rgba(0,0,0,0.4)] flex flex-col items-center justify-center relative overflow-hidden">
         <div className="absolute inset-0 opacity-[0.08] pointer-events-none" style={{ 
           backgroundImage: 'linear-gradient(rgba(255,165,0,0.05) 1px, transparent 1px)',
           backgroundSize: '100% 3px'
@@ -59,7 +60,7 @@ const ChordGrid: React.FC<ChordGridProps> = ({ activeChord, currentPage, onPress
                 {activeChord.root} {activeChord.modeName}
               </div>
               <div className="lcd-text text-orange-500/40 text-[12px] uppercase tracking-widest mt-1">
-                LATCHED • {getMidiModeLabel()}
+                LATCHED • OMNI V4.99
               </div>
             </div>
           ) : (
@@ -68,7 +69,7 @@ const ChordGrid: React.FC<ChordGridProps> = ({ activeChord, currentPage, onPress
                 A-Z CHORDS • 0-9 STRUM
               </div>
               <div className="lcd-text text-orange-500/90 text-[18px] uppercase tracking-[0.1em] text-center drop-shadow-[0_0_4px_rgba(249,115,22,0.2)]">
-                TAB PAGES • OMNI V4.94
+                TAB PAGES • OMNI V4.99
               </div>
               <div className="lcd-text text-orange-500/30 text-[10px] uppercase tracking-[0.3em] mt-1 italic">
                 {getMidiModeLabel()}
@@ -79,10 +80,10 @@ const ChordGrid: React.FC<ChordGridProps> = ({ activeChord, currentPage, onPress
       </div>
 
       {/* CHORD GRID ROWS */}
-      <div className="flex flex-col gap-4 w-full items-center">
+      <div className="flex flex-col gap-0.5 w-full items-center">
         {rows.map((row, idx) => (
           <div key={idx} className="flex flex-col items-center">
-            <div className="text-[8px] font-black text-amber-900/40 mb-2 uppercase tracking-[0.3em] font-sans">{row.label} Mode</div>
+            <div className="text-[7.5px] font-black text-amber-900/40 mb-0 uppercase tracking-[0.3em] font-sans h-3">{row.label} Mode</div>
             <div className="flex gap-1.5">
               {row.data.map((chord) => (
                 <button
@@ -90,14 +91,14 @@ const ChordGrid: React.FC<ChordGridProps> = ({ activeChord, currentPage, onPress
                   onMouseDown={() => onPress(chord)}
                   onMouseUp={onRelease}
                   onMouseLeave={onRelease}
-                  className={`chord-button w-[60px] h-[60px] flex flex-col items-center justify-center transition-all ${
+                  className={`chord-button w-[60px] h-[58px] flex flex-col items-center justify-center transition-all ${
                     activeChord?.label === chord.label 
                       ? 'bg-amber-700 text-white active shadow-[0_0_15px_rgba(180,83,9,0.5)] scale-105 z-10' 
                       : `${row.color} text-amber-950 hover:brightness-105 active:scale-95`
                   }`}
                 >
-                  <span className="leading-none text-[10px] font-black mb-1.5">{chord.label}</span>
-                  <div className={`w-5 h-[0.5px] mb-1.5 ${activeChord?.label === chord.label ? 'bg-white/40' : 'bg-amber-900/20'}`} />
+                  <span className="leading-none text-[10px] font-black mb-1">{chord.label}</span>
+                  <div className={`w-5 h-[0.5px] mb-1 ${activeChord?.label === chord.label ? 'bg-white/40' : 'bg-amber-900/20'}`} />
                   <span className={`text-[8.5px] font-mono font-black uppercase tracking-tighter ${activeChord?.label === chord.label ? 'text-white/70' : 'text-amber-900/40'}`}>
                     {chord.key.length > 5 ? chord.key.slice(0, 3) : chord.key}
                   </span>
@@ -109,8 +110,8 @@ const ChordGrid: React.FC<ChordGridProps> = ({ activeChord, currentPage, onPress
       </div>
 
       {/* PAGINATOR */}
-      <div className="mt-10 flex flex-col items-center gap-2">
-        <div className="flex gap-8 items-center bg-black/5 px-8 py-2.5 rounded-full border border-black/5">
+      <div className="mt-8 flex flex-col items-center gap-2">
+        <div className="flex gap-8 items-center bg-black/5 px-8 py-2 rounded-full border border-black/5">
           {[0, 1, 2].map(p => (
             <button
               key={p}
@@ -130,7 +131,7 @@ const ChordGrid: React.FC<ChordGridProps> = ({ activeChord, currentPage, onPress
             </button>
           ))}
         </div>
-        <div className="text-[7px] font-black text-amber-900/20 uppercase tracking-[0.8em] mt-1.5">OMNI_PAGE • TAB</div>
+        <div className="text-[7px] font-black text-amber-900/20 uppercase tracking-[0.8em] mt-1">OMNI_PAGE • TAB</div>
       </div>
     </div>
   );

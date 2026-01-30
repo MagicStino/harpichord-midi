@@ -88,13 +88,18 @@ class AudioEngine {
   }
 
   private makeDistortionCurve(amount: number) {
-    const k = amount * 100;
     const n_samples = 44100;
     const curve = new Float32Array(n_samples);
-    const deg = Math.PI / 180;
+    
+    // Amount 0-1. 
+    // V5.03: Lower drive scaling for more subtle transparency on low settings.
+    const drive = 1 + amount * 6; 
+    const asymmetry = amount * 0.15; 
+    
     for (let i = 0; i < n_samples; ++i) {
       const x = (i * 2) / n_samples - 1;
-      curve[i] = ((3 + k) * x * 20 * deg) / (Math.PI + k * Math.abs(x));
+      const sa = (x * drive) + asymmetry;
+      curve[i] = Math.tanh(sa);
     }
     return curve;
   }
@@ -112,7 +117,7 @@ class AudioEngine {
 
       const now = ctx.currentTime;
 
-      // Master Chain
+      // Master Gain Stage
       const compressor = ctx.createDynamicsCompressor();
       const masterGain = ctx.createGain();
       masterGain.gain.setValueAtTime(0, now);
@@ -122,11 +127,11 @@ class AudioEngine {
       const masterTubeWet = ctx.createGain();
       const masterTubeAmp = ctx.createWaveShaper();
       const masterTubeOut = ctx.createGain();
-      masterTubeAmp.curve = this.makeDistortionCurve(0.2);
+      
+      masterTubeAmp.curve = this.makeDistortionCurve(0.1);
       masterTubeDry.gain.setValueAtTime(1, now);
       masterTubeWet.gain.setValueAtTime(0, now);
 
-      // Sources
       const chordSource = ctx.createGain();
       const harpSource = ctx.createGain();
       const rhythmSource = ctx.createGain();
@@ -139,22 +144,20 @@ class AudioEngine {
       const chordDry = ctx.createGain();
       const chordDelaySend = ctx.createGain();
       const chordReverbSend = ctx.createGain();
-      
       const harpDry = ctx.createGain();
       const harpDelaySend = ctx.createGain();
       const harpReverbSend = ctx.createGain();
-      
       const rhythmDry = ctx.createGain();
       const rhythmDelaySend = ctx.createGain();
       const rhythmReverbSend = ctx.createGain();
 
-      // FX
       const delayNodeL = ctx.createDelay(4.0);
       const delayNodeR = ctx.createDelay(4.0);
       const delayFeedback = ctx.createGain();
       const delayFilter = ctx.createBiquadFilter();
       const delayMerger = ctx.createChannelMerger(2);
       const delayOutput = ctx.createGain();
+      
       delayFeedback.gain.setValueAtTime(0.4, now);
       delayFilter.type = 'lowpass';
       delayFilter.frequency.setValueAtTime(5000, now);
@@ -165,7 +168,6 @@ class AudioEngine {
       reverbFilter.type = 'lowpass';
       reverbFilter.frequency.setValueAtTime(10000, now);
 
-      // Connections
       rhythmSource.connect(rhythmFilterBus);
       chordSource.connect(chordDry);
       chordSource.connect(chordDelaySend);
@@ -189,8 +191,6 @@ class AudioEngine {
       delayOutput.connect(masterGain);
 
       const times = [0.033, 0.037, 0.041, 0.043, 0.047, 0.051, 0.059, 0.067];
-      this.reverbNodes = [];
-      this.reverbGains = [];
       times.forEach(t => {
         const d = ctx.createDelay(1.0);
         d.delayTime.value = t;
@@ -247,6 +247,11 @@ class AudioEngine {
       this.reverbFilter = reverbFilter;
       this.reverbPanner = reverbPanner;
       this.reverbOutput = reverbOutput;
+      
+      // Ramp master gain up gently after context is confirmed running
+      if (ctx.state === 'running') {
+        this.safeTarget(this.masterGain.gain, 1.0, ctx.currentTime, 0.1);
+      }
     })();
 
     return this.initPromise;
@@ -292,9 +297,23 @@ class AudioEngine {
   setVibrato(amt: number, rate: number) { 
     this.vibratoAmount = amt; 
     this.vibratoRate = rate; 
+    if (!this.ctx) return;
+    const now = this.ctx.currentTime;
+    
     this.chordOscillators.forEach(active => {
-      this.safeTarget(active.lfo?.frequency, rate);
-      this.safeTarget(active.lfoGain?.gain, amt * 25);
+      if (amt > 0) {
+        if (!active.lfo || !active.lfoGain) {
+          active.lfo = this.ctx!.createOscillator();
+          active.lfoGain = this.ctx!.createGain();
+          active.lfo.connect(active.lfoGain);
+          active.lfoGain.connect(active.osc.frequency);
+          active.lfo.start(now);
+        }
+        this.safeTarget(active.lfo.frequency, rate);
+        this.safeTarget(active.lfoGain.gain, amt * 25);
+      } else {
+        if (active.lfoGain) this.safeTarget(active.lfoGain.gain, 0);
+      }
     });
   }
 
@@ -334,14 +353,16 @@ class AudioEngine {
   async playChord(chord: ChordDefinition) {
     if (!this.ctx) await this.init();
     if (!this.ctx) return;
-    const now = this.ctx.currentTime;
+    
+    const now = this.ctx.currentTime + 0.01;
     
     if (!this.firstChordPlayed) {
+      if (this.ctx.state !== 'running') await this.ctx.resume();
       this.safeTarget(this.masterGain?.gain, 1, now, 0.1);
       this.firstChordPlayed = true;
     }
 
-    this.stopChord();
+    this.stopChord(true); 
 
     if (this.bassEnabled) {
       const freq = 130.81 * Math.pow(2, this.octaveShift) * Math.pow(2, (chord.intervals[0] - 12) / 12);
@@ -354,7 +375,7 @@ class AudioEngine {
       this.safeTarget(gainSine.gain, 0.7 * (1 - this.bassWaveformMix), now, this.chordAttack);
       oscSine.connect(gainSine);
       if (this.bassSource) gainSine.connect(this.bassSource);
-      oscSine.start();
+      oscSine.start(now);
       this.activeBassGainSine = gainSine;
 
       const oscSaw = this.ctx.createOscillator();
@@ -367,7 +388,7 @@ class AudioEngine {
       this.safeTarget(gainSaw.gain, 0.4 * this.bassWaveformMix, now, this.chordAttack);
       oscSaw.connect(lpf); lpf.connect(gainSaw);
       if (this.bassSource) gainSaw.connect(this.bassSource);
-      oscSaw.start();
+      oscSaw.start(now);
       this.activeBassGainSaw = gainSaw;
 
       this.bassOscillators.push({ osc: oscSine, gain: gainSine }, { osc: oscSaw, gain: gainSaw });
@@ -377,6 +398,7 @@ class AudioEngine {
       const osc = this.ctx!.createOscillator();
       const gain = this.ctx!.createGain();
       const filter = this.ctx!.createBiquadFilter();
+      
       osc.type = this.chordWaveform;
       osc.frequency.setValueAtTime(130.81 * Math.pow(2, this.octaveShift) * Math.pow(2, interval / 12), now);
       
@@ -389,7 +411,7 @@ class AudioEngine {
         lfoG.gain.setValueAtTime(this.vibratoAmount * 25, now);
         lfo.connect(lfoG); 
         lfoG.connect(osc.frequency);
-        lfo.start();
+        lfo.start(now);
       }
 
       filter.type = 'lowpass';
@@ -398,7 +420,7 @@ class AudioEngine {
       this.safeTarget(gain.gain, 0.25, now, this.chordAttack);
       osc.connect(filter); filter.connect(gain);
       if (this.chordSource) gain.connect(this.chordSource);
-      osc.start();
+      osc.start(now);
       this.chordOscillators.push({ osc, gain, filter, lfo, lfoGain: lfoG });
     });
   }
@@ -406,17 +428,17 @@ class AudioEngine {
   stopChord(immediate = false) {
     if (!this.ctx) return;
     const now = this.ctx.currentTime;
-    const release = immediate ? 0.02 : this.chordRelease;
+    const release = immediate ? 0.01 : this.chordRelease;
     this.chordOscillators.forEach((active) => {
       active.gain.gain.cancelScheduledValues(now);
       this.safeTarget(active.gain.gain, 0, now, release);
-      active.osc.stop(now + release * 4);
-      active.lfo?.stop(now + release * 4);
+      active.osc.stop(now + release * 2);
+      active.lfo?.stop(now + release * 2);
     });
     this.bassOscillators.forEach(({ osc, gain }) => {
       gain.gain.cancelScheduledValues(now);
       this.safeTarget(gain.gain, 0, now, release);
-      osc.stop(now + release * 4);
+      osc.stop(now + release * 2);
     });
     this.chordOscillators = [];
     this.bassOscillators = [];
@@ -445,7 +467,7 @@ class AudioEngine {
     gain.gain.exponentialRampToValueAtTime(0.001, now + decay);
     osc.connect(filter); filter.connect(gain);
     if (this.harpSource) gain.connect(this.harpSource);
-    osc.start(); osc.stop(now + decay + 0.1);
+    osc.start(now); osc.stop(now + decay + 0.1);
   }
 
   startRhythm(pattern: RhythmPattern) {
@@ -453,25 +475,84 @@ class AudioEngine {
     if (pattern === RhythmPattern.NONE || !this.ctx) return;
     const beatLen = 60 / this.tempo;
     let step = 0;
-    // 16th note interval
+    
     this.rhythmInterval = window.setInterval(() => {
       const s = step % 16;
       switch(pattern) {
-        case RhythmPattern.ROCK1: if (s%4==0) this.playDrum('kick'); if (s%4==2) this.playDrum('snare'); if (s%2==0) this.playDrum('hihat'); break;
-        case RhythmPattern.ROCK2: if (s==0||s==3) this.playDrum('kick'); if (s==4||s==12) this.playDrum('snare'); if (s%2==0) this.playDrum('hihat'); break;
-        case RhythmPattern.DISCO: if (s%4==0) this.playDrum('kick'); if (s%4==2) this.playDrum('snare'); this.playDrum('hihat'); break;
-        case RhythmPattern.EIGHT_BEAT: if (s%4==0) this.playDrum('kick'); if (s%8==4) this.playDrum('snare'); if (s%2==0) this.playDrum('hihat'); break;
-        case RhythmPattern.SIXTEEN_BEAT: if (s==0||s==6||s==10) this.playDrum('kick'); if (s==4||s==12) this.playDrum('snare'); if (s%2==0) this.playDrum('hihat'); break;
-        case RhythmPattern.COUNTRY: if (s%8==0||s%8==4) this.playDrum('kick'); if (s%8==2||s%8==6) this.playDrum('snare'); if (s%2==0) this.playDrum('hihat'); break;
-        case RhythmPattern.SHUFFLE: if (s%8==0) this.playDrum('kick'); if (s%8==4) this.playDrum('snare'); if (s%3==0||s%3==2) this.playDrum('hihat'); break;
-        case RhythmPattern.HIPHOP: if (s==0||s==3||s==10) this.playDrum('kick'); if (s==4||s==12) this.playDrum('snare'); if (s%2==0) this.playDrum('hihat'); break;
-        case RhythmPattern.BLUES: if (s%8==0||s%8==3) this.playDrum('kick'); if (s%8==4) this.playDrum('snare'); if (s%2==0) this.playDrum('hihat'); break;
-        case RhythmPattern.WALTZ: if (s%12==0) this.playDrum('kick'); if (s%12==4||s%12==8) this.playDrum('hihat'); break;
-        case RhythmPattern.JAZZ_WALTZ: if (s%12==0) this.playDrum('kick'); if (s%12==4||s%12==8) this.playDrum('hihat'); if (s%12==4) this.playDrum('snare'); break;
-        case RhythmPattern.LATIN: if (s%4==0) this.playDrum('kick'); if (s==3||s==7||s==11||s==15) this.playDrum('snare'); this.playDrum('hihat'); break;
-        case RhythmPattern.BOSSA: if (s==0||s==3||s==10) this.playDrum('kick'); if (s==4||s==12) this.playDrum('snare'); if (s%2==0) this.playDrum('hihat'); break;
-        case RhythmPattern.REGGAE: if (s==4||s==12) this.playDrum('kick'); if (s==4||s==12) this.playDrum('snare'); if (s%2==0) this.playDrum('hihat'); break;
-        case RhythmPattern.TANGO: if (s==0||s==4||s==8||s==12||s==14) this.playDrum('kick'); if (s==15) this.playDrum('snare'); break;
+        case RhythmPattern.ROCK1: 
+          if (s % 8 === 0 || s % 8 === 6) this.playDrum('kick'); 
+          if (s % 8 === 4) this.playDrum('snare'); 
+          if (s % 4 === 0) this.playDrum('hihat'); 
+          break;
+        case RhythmPattern.ROCK2: 
+          if (s === 0 || s === 3 || s === 8) this.playDrum('kick'); 
+          if (s === 4 || s === 12) this.playDrum('snare'); 
+          if (s % 4 === 0) this.playDrum('hihat'); 
+          break;
+        case RhythmPattern.DISCO: 
+          if (s % 4 === 0) this.playDrum('kick'); 
+          if (s % 8 === 4) this.playDrum('snare'); 
+          if (s % 4 === 0) this.playDrum('hihat'); 
+          break;
+        case RhythmPattern.EIGHT_BEAT: 
+          if (s % 4 === 0) this.playDrum('kick'); 
+          if (s % 8 === 4) this.playDrum('snare'); 
+          if (s % 2 === 0) this.playDrum('hihat'); 
+          break;
+        case RhythmPattern.SIXTEEN_BEAT: 
+          if (s === 0 || s === 6 || s === 10) this.playDrum('kick'); 
+          if (s === 4 || s === 12) this.playDrum('snare'); 
+          if (s % 2 === 0) this.playDrum('hihat'); 
+          break;
+        case RhythmPattern.COUNTRY: 
+          if (s % 8 === 0 || s % 8 === 4) this.playDrum('kick'); 
+          if (s % 8 === 2 || s % 8 === 6) this.playDrum('snare'); 
+          if (s % 4 === 0) this.playDrum('hihat'); 
+          break;
+        case RhythmPattern.SHUFFLE: 
+          if (s % 8 === 0) this.playDrum('kick'); 
+          if (s % 8 === 4) this.playDrum('snare'); 
+          if (s % 3 === 0 || s % 3 === 2) this.playDrum('hihat'); 
+          break;
+        case RhythmPattern.HIPHOP: 
+          if (s === 0 || s === 3 || s === 10) this.playDrum('kick'); 
+          if (s === 4 || s === 12) this.playDrum('snare'); 
+          if (s % 4 === 0) this.playDrum('hihat'); 
+          break;
+        case RhythmPattern.BLUES: 
+          if (s % 8 === 0 || s % 8 === 3) this.playDrum('kick'); 
+          if (s % 8 === 4) this.playDrum('snare'); 
+          if (s % 4 === 0) this.playDrum('hihat'); 
+          break;
+        case RhythmPattern.WALTZ: 
+          if (s % 12 === 0) this.playDrum('kick'); 
+          if (s % 12 === 4 || s % 12 === 8) this.playDrum('hihat'); 
+          break;
+        case RhythmPattern.JAZZ_WALTZ: 
+          if (s % 12 === 0) this.playDrum('kick'); 
+          if (s % 12 === 4 || s % 12 === 8) this.playDrum('hihat'); 
+          if (s % 12 === 4) this.playDrum('snare'); 
+          break;
+        case RhythmPattern.LATIN: 
+          if (s % 4 === 0) this.playDrum('kick'); 
+          if (s === 3 || s === 7 || s === 11 || s === 15) this.playDrum('snare'); 
+          if (s % 2 === 0) this.playDrum('hihat'); 
+          break;
+        case RhythmPattern.BOSSA: 
+          if (s === 0 || s === 3 || s === 10) this.playDrum('kick'); 
+          if (s === 4 || s === 12) this.playDrum('snare'); 
+          // Fixed: typo playTahum corrected to playDrum
+          if (s % 4 === 0) this.playDrum('hihat'); 
+          break;
+        case RhythmPattern.REGGAE: 
+          if (s === 4 || s === 12) this.playDrum('kick'); 
+          if (s === 4 || s === 12) this.playDrum('snare'); 
+          if (s % 4 === 0) this.playDrum('hihat'); 
+          break;
+        case RhythmPattern.TANGO: 
+          if (s === 0 || s === 4 || s === 8 || s === 12 || s === 14) this.playDrum('kick'); 
+          if (s === 15) this.playDrum('snare'); 
+          break;
       }
       step = (step + 1) % 48;
     }, (beatLen / 4) * 1000);
@@ -487,7 +568,7 @@ class AudioEngine {
       osc.frequency.exponentialRampToValueAtTime(0.01, now + 0.15);
       gain.gain.setValueAtTime(1.0, now); 
       gain.gain.exponentialRampToValueAtTime(0.01, now + 0.15);
-      osc.connect(gain); osc.start(); osc.stop(now + 0.15);
+      osc.connect(gain); osc.start(now); osc.stop(now + 0.15);
     } else {
       const noise = this.ctx.createBufferSource();
       const bufferSize = this.ctx.sampleRate * 0.2;
@@ -501,7 +582,7 @@ class AudioEngine {
       noise.connect(f); f.connect(gain);
       gain.gain.setValueAtTime(type === 'snare' ? 0.7 : 0.45, now);
       gain.gain.exponentialRampToValueAtTime(0.01, now + (type === 'snare' ? 0.2 : 0.08));
-      noise.start(); noise.stop(now + 0.2);
+      noise.start(now); noise.stop(now + 0.2);
     }
     gain.connect(this.rhythmSource);
   }

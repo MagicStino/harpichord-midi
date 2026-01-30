@@ -12,6 +12,10 @@ class MidiManager {
   // Track active chord notes to send explicit Note Offs
   private activeChordNotes: Map<string, number[]> = new Map();
   
+  // LOOP PREVENTION: Ignore incoming messages for a short window after sending
+  private lockoutUntil: number = 0;
+  private LOCKOUT_DURATION_MS = 35; // Short enough to not miss human play, long enough to break loops
+
   public isSupported: boolean = false;
   public initialized: boolean = false;
 
@@ -92,7 +96,15 @@ class MidiManager {
   }
 
   private broadcast(message: Uint8Array, deviceId: string) {
+    // If we are in a lockout period, ignore incoming MIDI to prevent feedback loops
+    if (Date.now() < this.lockoutUntil) {
+      return;
+    }
     this.listeners.forEach(l => l(message, deviceId));
+  }
+
+  private setLockout() {
+    this.lockoutUntil = Date.now() + this.LOCKOUT_DURATION_MS;
   }
 
   public sendChord(chord: ChordDefinition | null, outputId: string, channel: number) {
@@ -101,6 +113,10 @@ class MidiManager {
       ? Array.from(this.outputs.values()) 
       : [this.outputs.get(outputId)].filter(Boolean) as MIDIOutput[];
     
+    if (outputsToSend.length > 0) {
+      this.setLockout();
+    }
+
     outputsToSend.forEach(out => {
       try {
         // 1. Explicitly turn off previous notes for this device
@@ -133,16 +149,17 @@ class MidiManager {
       ? Array.from(this.outputs.values()) 
       : [this.outputs.get(outputId)].filter(Boolean) as MIDIOutput[];
     
-    // Calculate precise MIDI note matching AudioEngine logic
+    if (outputsToSend.length > 0) {
+      this.setLockout();
+    }
+
     const intervalIndex = stringIndex % chord.intervals.length;
     const octaveOffset = Math.floor(stringIndex / chord.intervals.length);
-    // Base 60 = C4. We add the interval (which includes root offset) and octave/harpOctave shifts.
     const note = 60 + (octave + harpOctave) * 12 + chord.intervals[intervalIndex] + (octaveOffset * 12);
 
     outputsToSend.forEach(out => {
       try {
         out.send([0x90 | (channel - 1), note, 110]);
-        // Short note off to simulate pluck
         setTimeout(() => out.send([0x80 | (channel - 1), note, 0]), 250);
       } catch (e) {
         console.error("MIDI Output Error:", e);

@@ -1,5 +1,6 @@
 
-import { MidiInstrumentConfig, MidiMessage, MidiCommand } from '../types';
+// Fixed: Import missing MIDI types from local types-1 file instead of root types
+import { MidiInstrumentConfig, MidiMessage, MidiCommand } from './types-1';
 import { MidiManager } from './MidiManager';
 
 export type MidiMessageHandler = (command: MidiCommand, channel: number, note: number, velocity: number) => void;
@@ -14,7 +15,7 @@ export class MidiInstrument {
   private onMessageCallbacks: Set<MidiMessageHandler> = new Set();
 
   constructor(config: MidiInstrumentConfig) {
-    this.config = config;
+    this.config = { ...config };
     this.manager = MidiManager.getInstance();
     this.manager.addListener(this.handleMidiEvent);
   }
@@ -51,7 +52,7 @@ export class MidiInstrument {
     // 4. Automated Thru Routing
     if (this.config.outputId && this.config.outputId !== 'none') {
       const outStatus = command | (this.config.outputChannel - 1);
-      this.manager.sendMidi(this.config.outputId, [outStatus, data1, data2]);
+      this.manager.sendMidi(this.config.outputId, [outStatus, data1, data2] as MidiMessage);
     }
   }
 

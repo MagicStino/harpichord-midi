@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { OmnichordState, ChordDefinition, RhythmPattern, DelayDivision } from './types';
+import { OmnichordState, ChordDefinition, RhythmPattern, DelayDivision, ChordModeKey } from './types';
 import { 
   MAJOR_CHORDS, MINOR_CHORDS, DOM7_CHORDS,
   MIN7_CHORDS, MAJ7_CHORDS, ADD9_CHORDS,
@@ -21,7 +21,7 @@ const INITIAL_STATE: OmnichordState = {
   chordVolume: 0.50,   
   harpVolume: 0.50,    
   rhythmVolume: 0.50,  
-  bassVolume: 0.50,    
+  bassVolume: 0.35, 
   sustain: 0.4,
   tempo: 120,
   rhythm: RhythmPattern.NONE,
@@ -37,7 +37,7 @@ const INITIAL_STATE: OmnichordState = {
   chordAttack: 0.01,
   chordRelease: 0.2,
   tubeEnabled: false,
-  tubeDrive: 0.2,
+  tubeDrive: 0.1, 
   tubeWet: 0.4,
   tubePreset: 'soft',
   delayDivision: '1/8',
@@ -58,12 +58,14 @@ const INITIAL_STATE: OmnichordState = {
   harpWaveform: 'triangle',
   vibratoAmount: 0,
   vibratoRate: 5,
-  // MIDI Defaults
   midiInputId: 'all',
   midiChordOutputId: 'none',
   midiChordChannel: 1,
   midiHarpOutputId: 'none',
   midiHarpChannel: 2,
+  midiOctaveMap: {
+    0: 'Sus4', 1: 'Power', 2: 'Minor 7', 3: 'Minor', 4: 'Major', 5: 'Dominant 7', 6: 'Major 7'
+  }
 };
 
 const App: React.FC = () => {
@@ -72,12 +74,13 @@ const App: React.FC = () => {
   const [scale, setScale] = useState(1);
   const [lastStrumNote, setLastStrumNote] = useState<{midi: number, time: number} | null>(null);
   const [touchpadStrumIndex, setTouchpadStrumIndex] = useState<{index: number, time: number} | null>(null);
-  
-  // MIDI Input State
-  const [midiMode, setMidiMode] = useState<number>(0); // 0=Major (C4), 1=Minor (C5), 2=7th (C3)
-  const [activeMidiRoot, setActiveMidiRoot] = useState<number | null>(null);
+  const [activeMidiNote, setActiveMidiNote] = useState<number | null>(null);
 
   const lastZone = useRef<number | null>(null);
+  
+  // Rate limiter for incoming MIDI to prevent CPU hang
+  const lastMidiTime = useRef<number>(0);
+  const midiEventCounter = useRef<number>(0);
 
   useEffect(() => {
     const saved = localStorage.getItem(STORAGE_KEY);
@@ -92,7 +95,7 @@ const App: React.FC = () => {
           useTouchpad: false 
         }));
       } catch (e) {
-        console.warn("Autoload corrupted:", e);
+        console.warn("Autoload error:", e);
       }
     }
     midiService.init().catch(() => {});
@@ -140,13 +143,10 @@ const App: React.FC = () => {
   const handleChordPress = useCallback((chord: ChordDefinition | null) => {
     if (!chord) return;
     initAudioOnInteraction();
-    
     audioEngine.playChord(chord);
-    
     if (state.midiChordOutputId !== 'none') {
       midiService.sendChord(chord, state.midiChordOutputId, state.midiChordChannel);
     }
-
     setState(prev => ({ ...prev, currentChord: chord }));
   }, [state.midiChordOutputId, state.midiChordChannel, state]); 
 
@@ -154,7 +154,6 @@ const App: React.FC = () => {
     initAudioOnInteraction();
     if (state.currentChord) {
       audioEngine.playHarpNote(state.currentChord, index);
-      
       if (state.midiHarpOutputId !== 'none') {
         midiService.sendHarpNote(
           state.currentChord, 
@@ -165,11 +164,9 @@ const App: React.FC = () => {
           state.midiHarpChannel
         );
       }
-
       const intervalIndex = index % state.currentChord.intervals.length;
       const octaveOffset = Math.floor(index / state.currentChord.intervals.length);
       const midiNote = 60 + (state.octave + state.harpOctave) * 12 + state.currentChord.intervals[intervalIndex] + (octaveOffset * 12);
-      
       setLastStrumNote({ midi: midiNote, time: Date.now() });
       setTouchpadStrumIndex({ index, time: Date.now() });
     }
@@ -177,56 +174,78 @@ const App: React.FC = () => {
 
   useEffect(() => {
     const handleMidiMessage = (message: Uint8Array, id: string) => {
+      if (state.midiInputId === 'none') return;
       if (state.midiInputId !== 'all' && state.midiInputId !== id) return;
       
+      const now = Date.now();
+      // Basic rate limiting: detect abnormal frequency (e.g., feedback loop)
+      if (now - lastMidiTime.current < 100) {
+        midiEventCounter.current++;
+        if (midiEventCounter.current > 12) { // More than 12 events in 100ms is likely a loop
+          return; 
+        }
+      } else {
+        midiEventCounter.current = 0;
+      }
+      lastMidiTime.current = now;
+
       const [status, data1, data2] = message;
       const type = status & 0xf0;
       
-      if (type === 0x90 && data2 > 0) {
-        if (data1 === 60) setMidiMode(0);
-        else if (data1 === 72) setMidiMode(1);
-        else if (data1 === 48) setMidiMode(2);
-        else {
-          const rootOffset = data1 % 12;
-          let pool: ChordDefinition[] = [];
-          if (midiMode === 0) pool = MAJOR_CHORDS;
-          else if (midiMode === 1) pool = MINOR_CHORDS;
-          else pool = DOM7_CHORDS;
-          
-          const names = ['C', 'Db', 'D', 'Eb', 'E', 'F', 'F#', 'G', 'Ab', 'A', 'Bb', 'B'];
-          const chord = pool.find(c => c.root === names[rootOffset]);
-          
-          if (chord) {
-            handleChordPress(chord);
-            setActiveMidiRoot(data1);
+      if (type === 0x90 && data2 > 0) { 
+        const note = data1;
+        const octave = Math.floor(note / 12) - 1; 
+        
+        if (octave >= 0 && octave <= 6) {
+          const mode = state.midiOctaveMap[octave];
+          if (mode && mode !== 'None') {
+            const rootOffset = note % 12;
+            const names = ['C', 'Db', 'D', 'Eb', 'E', 'F', 'F#', 'G', 'Ab', 'A', 'Bb', 'B'];
+            const rootName = names[rootOffset];
+            
+            let pool: ChordDefinition[] = [];
+            switch(mode) {
+              case 'Major': pool = MAJOR_CHORDS; break;
+              case 'Minor': pool = MINOR_CHORDS; break;
+              case 'Dominant 7': pool = DOM7_CHORDS; break;
+              case 'Minor 7': pool = MIN7_CHORDS; break;
+              case 'Major 7': pool = MAJ7_CHORDS; break;
+              case 'Add9': pool = ADD9_CHORDS; break;
+              case 'Sus4': pool = SUS4_CHORDS; break;
+              case 'Power': pool = POWER_CHORDS; break;
+              case 'Diminished': pool = DIM_CHORDS; break;
+            }
+            
+            const chord = pool.find(c => c.root === rootName);
+            if (chord) {
+              handleChordPress(chord);
+              setActiveMidiNote(note);
+            }
           }
         }
-      } 
+      }
     };
 
     midiService.addListener(handleMidiMessage);
     return () => midiService.removeListener(handleMidiMessage);
-  }, [state.midiInputId, midiMode, handleChordPress]);
+  }, [state.midiInputId, state.midiOctaveMap, handleChordPress]);
 
   useEffect(() => {
     if (!state.useTouchpad) {
       lastZone.current = null;
       return;
     }
-
     const handlePointerMove = (e: PointerEvent) => {
       const stringsCount = 14;
       const height = window.innerHeight;
       const segment = Math.floor((e.clientY / height) * stringsCount);
       const clampedSegment = Math.max(0, Math.min(stringsCount - 1, segment));
       const targetString = (stringsCount - 1) - clampedSegment;
-
       if (lastZone.current !== targetString) {
         handleHarpTrigger(targetString);
         lastZone.current = targetString;
       }
     };
-
     window.addEventListener('pointermove', handlePointerMove);
     return () => window.removeEventListener('pointermove', handlePointerMove);
   }, [state.useTouchpad, handleHarpTrigger]);
@@ -238,14 +257,15 @@ const App: React.FC = () => {
     setState(prev => ({ ...prev, currentChord: null, rhythm: RhythmPattern.NONE }));
     setLastStrumNote(null);
     setTouchpadStrumIndex(null);
-    setActiveMidiRoot(null);
+    setActiveMidiNote(null);
   }, [state.midiChordOutputId, state.midiChordChannel]);
 
   const handleStateChange = useCallback((updates: Partial<OmnichordState>) => {
     setState(prev => {
       const newState = { ...prev, ...updates };
       localStorage.setItem(STORAGE_KEY, JSON.stringify(newState));
-
+      
+      // Apply updates to the engine immediately
       if (updates.chordVolume !== undefined) audioEngine.setChordVolume(newState.chordVolume);
       if (updates.harpVolume !== undefined) audioEngine.setHarpVolume(newState.harpVolume);
       if (updates.rhythmVolume !== undefined) audioEngine.setRhythmVolume(newState.rhythmVolume);
@@ -294,7 +314,6 @@ const App: React.FC = () => {
       if (updates.reverbSize !== undefined || updates.reverbDamp !== undefined || updates.reverbWidth !== undefined || updates.reverbColor !== undefined) {
           audioEngine.updateReverb(newState.reverbSize, newState.reverbDamp, newState.reverbWidth, newState.reverbColor);
       }
-      
       const sendKeys = ['chordDelaySend', 'chordReverbSend', 'harpDelaySend', 'harpReverbSend', 'rhythmDelaySend', 'rhythmReverbSend'];
       if (sendKeys.some(k => updates.hasOwnProperty(k))) {
           audioEngine.setSends({
@@ -368,28 +387,18 @@ const App: React.FC = () => {
 
   return (
     <div className="fixed inset-0 flex items-center justify-center bg-[#050505] overflow-hidden select-none">
-      
-      {state.useTouchpad && (
-        <div className="fixed top-6 left-1/2 -translate-x-1/2 z-[400] pointer-events-none flex flex-col items-center gap-1">
-            <div className="bg-orange-600 text-black px-8 py-2.5 rounded-full border-2 border-orange-400 font-black text-[12px] uppercase tracking-widest animate-pulse shadow-[0_0_30px_rgba(234,88,12,0.5)]">
-                SENSORY TOUCHPAD ACTIVE • STRUM MOUSE VERTICALLY
-            </div>
-        </div>
-      )}
-
       <div 
         style={{ transform: `scale(${scale})`, transformOrigin: 'center center', width: '1780px', height: '1000px', flexShrink: 0 }} 
         className="omnichord-body pt-10 pb-6 px-40 rounded-[7.5rem] border border-[#c4b598] relative transition-all shadow-[0_120px_240px_rgba(0,0,0,1)] flex flex-col justify-between"
       >
         <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[1060px] h-4 bg-black/5 rounded-b-[2rem] border-b border-black/5" />
-        
         <div className="flex justify-between items-start w-full px-40 pt-0 relative min-h-[100px]">
           <div className="w-[440px] flex items-center gap-6 mt-1.5">
             <div className="flex items-center gap-6 bg-black/10 px-6 py-2 rounded-full border border-black/10 shadow-inner">
               <div className={`w-5 h-5 rounded-full border-2 border-black/40 transition-all duration-700 ${initialized ? 'bg-green-600 shadow-[0_0_20px_rgba(22,163,74,0.6)]' : 'bg-green-950'}`} />
               <div className="w-px h-6 bg-black/15" />
               <div className="flex flex-col">
-                  <span className="text-[10px] font-black text-orange-900/60 tracking-[0.2em] uppercase leading-none">V4.94 OMNI_CORE</span>
+                  <span className="text-[10px] font-black text-orange-900/60 tracking-[0.2em] uppercase leading-none">V5.03 OMNI_CORE</span>
               </div>
             </div>
             <div className="flex flex-col">
@@ -397,22 +406,18 @@ const App: React.FC = () => {
                 <span className="text-[9px] font-black tracking-[0.2em] text-orange-900/10 uppercase italic leading-none mt-1">POLYPHONIC BRIDGE</span>
             </div>
           </div>
-
           <div className="absolute left-1/2 -translate-x-1/2 flex flex-col items-center">
             <span className="branding-text text-6xl tracking-[-0.08em] opacity-90 leading-none">HARPICHORD</span>
             <span className="text-[12px] font-black tracking-[0.5em] text-orange-900/40 uppercase mt-2 italic">STIJN DE RYCK • 2026</span>
           </div>
-
           <div className="w-[300px] flex justify-end mt-1.5">
             <span className="text-[9px] font-black tracking-[0.2em] text-orange-900/10 uppercase italic">MADE IN THE NETHERLANDS</span>
           </div>
         </div>
-
         <div className="flex w-full gap-16 items-start justify-center px-40 flex-1 mt-2">
           <div className="w-[28%] min-w-[440px]">
             <ControlPanel state={state} onChange={handleStateChange} onReset={handleReset} />
           </div>
-
           <div className="flex-1 flex flex-col gap-4 items-center justify-start relative">
             <div className="w-full h-[580px] bg-[#dcd0b8] rounded-[5rem] border border-[#bdae93] shadow-[inset_0_25px_50px_rgba(0,0,0,0.2)] flex items-center justify-center p-8">
               <ChordGrid 
@@ -421,10 +426,8 @@ const App: React.FC = () => {
                 onPress={handleChordPress} 
                 onRelease={() => {}} 
                 onSetPage={(p) => handleStateChange({ chordPage: p })}
-                midiMode={midiMode}
               />
             </div>
-            
             <div className="flex flex-col items-center gap-6 w-full">
                 <div className="flex items-center gap-12">
                     <div className="w-40 h-[1.5px] bg-orange-900/20" />
@@ -434,7 +437,6 @@ const App: React.FC = () => {
                     </button>
                     <div className="w-40 h-[1.5px] bg-orange-900/20" />
                 </div>
-
                 <div className="w-[900px] mt-[20px]">
                     <div className="w-full bg-[#dcd0b8] rounded-[3rem] border border-[#bdae93] shadow-[inset_0_8px_16px_rgba(0,0,0,0.1),0_10px_30px_rgba(0,0,0,0.15)] p-3">
                       <PianoKeyboard 
@@ -447,7 +449,6 @@ const App: React.FC = () => {
                 </div>
             </div>
           </div>
-
           <div className="flex flex-col items-center justify-center gap-10">
              <SonicStrings 
                 currentChord={state.currentChord} 

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { RhythmPattern, OmnichordState, DelayDivision, WaveformType, MidiDevice } from '../types';
+import { RhythmPattern, OmnichordState, DelayDivision, WaveformType, MidiDevice, ChordModeKey } from '../types';
 import { midiService } from '../services/midiService';
 
 interface KnobProps {
@@ -83,29 +83,69 @@ interface ControlPanelProps {
 
 const ControlPanel: React.FC<ControlPanelProps> = ({ state, onChange, onReset }) => {
   const [activeTab, setActiveTab] = useState<'MAIN' | 'DRUMS' | 'FX' | 'SOUND' | 'I/O'>('MAIN');
+  const [ioSubTab, setIoSubTab] = useState<'MIDI OUT' | 'MIDI IN' | 'MIDI LOG'>('MIDI OUT');
   const [devices, setDevices] = useState<MidiDevice[]>([]);
-  const [lastMessage, setLastMessage] = useState<string>("");
+  const [midiLogs, setMidiLogs] = useState<string[]>([]);
 
   useEffect(() => {
     const handleDevicesUpdate = () => {
       setDevices(midiService.getDevices());
     };
     window.addEventListener('midiDevicesChanged', handleDevicesUpdate);
-    handleDevicesUpdate(); // initial load
+    handleDevicesUpdate();
     return () => window.removeEventListener('midiDevicesChanged', handleDevicesUpdate);
   }, []);
+
+  const addLog = (msg: string) => {
+    const timestamp = new Date().toLocaleTimeString([], { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    setMidiLogs(prev => [`[${timestamp}] ${msg}`, ...prev].slice(0, 15));
+  };
+
+  const parseMidi = (msg: Uint8Array, id: string) => {
+    const [status, d1, d2] = msg;
+    const cmd = status & 0xF0;
+    const ch = (status & 0x0F) + 1;
+    const names = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
+    const prefix = `${id.slice(0,4)}: `;
+    
+    if (cmd === 0x90 && d2 > 0) {
+      const oct = Math.floor(d1 / 12) - 1;
+      return `${prefix}▶ NOTE ON | ${names[d1 % 12]}${oct} | VEL: ${d2} | CH: ${ch}`;
+    }
+    if (cmd === 0x80 || (cmd === 0x90 && d2 === 0)) {
+      const oct = Math.floor(d1 / 12) - 1;
+      return `${prefix}■ NOTE OFF | ${names[d1 % 12]}${oct} | CH: ${ch}`;
+    }
+    if (cmd === 0xB0) return `${prefix}⚙ CC | NO: ${d1} | VAL: ${d2} | CH: ${ch}`;
+    if (cmd === 0xE0) return `${prefix}〰 BEND | VAL: ${((d2 << 7) | d1)} | CH: ${ch}`;
+    
+    return `${prefix}HEX: ${Array.from(msg).map(b => b.toString(16).padStart(2, '0')).join(' ')}`;
+  };
 
   useEffect(() => {
     const handleMidiIn = (msg: Uint8Array, id: string) => {
       if (activeTab === 'I/O') {
-        const hex = Array.from(msg).map(b => b.toString(16).padStart(2, '0')).join(' ');
-        setLastMessage(`IN [${id.slice(0,4)}]: ${hex}`);
-        setTimeout(() => setLastMessage(""), 2000);
+        addLog(parseMidi(msg, id));
       }
     };
     midiService.addListener(handleMidiIn);
     return () => midiService.removeListener(handleMidiIn);
   }, [activeTab]);
+
+  const handleRefreshDevices = () => {
+    midiService.init();
+    const newDevices = midiService.getDevices();
+    setDevices(newDevices);
+    
+    addLog("--- SYSTEM REFRESH ---");
+    const inputs = newDevices.filter(d => d.type === 'input');
+    const outputs = newDevices.filter(d => d.type === 'output');
+    
+    inputs.forEach(d => addLog(`DETECTED IN: ${d.name}`));
+    outputs.forEach(d => addLog(`DETECTED OUT: ${d.name}`));
+    
+    addLog(`FOUND ${inputs.length} INPUTS / ${outputs.length} OUTPUTS.`);
+  };
 
   const applyTubePreset = (preset: 'clean' | 'soft' | 'warm' | 'hot') => {
     let drive = 0;
@@ -113,7 +153,7 @@ const ControlPanel: React.FC<ControlPanelProps> = ({ state, onChange, onReset })
     let enabled = true;
     switch(preset) {
       case 'clean': enabled = false; drive = 0; wet = 0; break;
-      case 'soft': drive = 0.2; wet = 0.35; break;
+      case 'soft': drive = 0.05; wet = 0.25; break; // V5.03: Extra subtle Soft setting
       case 'warm': drive = 0.45; wet = 0.5; break;
       case 'hot': drive = 0.85; wet = 0.7; break;
     }
@@ -122,6 +162,13 @@ const ControlPanel: React.FC<ControlPanelProps> = ({ state, onChange, onReset })
 
   const outputs = devices.filter(d => d.type === 'output');
   const inputs = devices.filter(d => d.type === 'input');
+
+  const updateOctaveMap = (octave: number, mode: ChordModeKey) => {
+    const newMap = { ...state.midiOctaveMap, [octave]: mode };
+    onChange({ midiOctaveMap: newMap });
+  };
+
+  const chordModes: ChordModeKey[] = ['None', 'Major', 'Minor', 'Dominant 7', 'Minor 7', 'Major 7', 'Add9', 'Sus4', 'Power', 'Diminished'];
 
   return (
     <div className="flex flex-col h-fit max-h-[880px] bg-[#dcd0b8] rounded-[2.5rem] border-[4px] border-[#bdae93] shadow-[inset_0_4px_10px_rgba(0,0,0,0.1)] text-orange-950 font-black uppercase tracking-tight overflow-hidden">
@@ -145,7 +192,7 @@ const ControlPanel: React.FC<ControlPanelProps> = ({ state, onChange, onReset })
           <>
             <div className="bg-orange-950/5 p-3 rounded-2xl border-[3px] border-orange-950/20 space-y-2">
                 <span className="text-[10px] font-black uppercase tracking-widest text-orange-900 leading-none block mb-1">CHORD SECTION</span>
-                <div className="grid grid-cols-2 gap-y-4 gap-x-2 justify-items-center">
+                <div className="grid grid-cols-2 gap-y-3 gap-x-2 justify-items-center">
                    <Knob label="CHORD VOL" size="sm" value={state.chordVolume} onChange={(v) => onChange({ chordVolume: v })} />
                    <Knob label="CHORD CUT" size="sm" value={state.chordCutoff} onChange={(v) => onChange({ chordCutoff: v })} />
                    <Knob label="ATTACK" size="sm" value={state.chordAttack} onChange={(v) => onChange({ chordAttack: v })} />
@@ -198,19 +245,11 @@ const ControlPanel: React.FC<ControlPanelProps> = ({ state, onChange, onReset })
                   {state.tubeEnabled ? 'ACTIVE' : 'BYPASS'}
                 </button>
               </div>
-              
               <div className="grid grid-cols-4 gap-1 mb-2">
                 {(['clean', 'soft', 'warm', 'hot'] as const).map(p => (
-                  <button 
-                    key={p} 
-                    onClick={() => applyTubePreset(p)} 
-                    className={`py-1 rounded text-[9px] font-black border-2 transition-all uppercase ${state.tubePreset === p ? 'bg-orange-500 text-black border-orange-700' : 'bg-white/40 border-orange-900/10 text-orange-900/60 hover:bg-white/60'}`}
-                  >
-                    {p}
-                  </button>
+                  <button key={p} onClick={() => applyTubePreset(p)} className={`py-1 rounded text-[9px] font-black border-2 transition-all uppercase ${state.tubePreset === p ? 'bg-orange-500 text-black border-orange-700' : 'bg-white/40 border-orange-900/10 text-orange-900/60 hover:bg-white/60'}`}>{p}</button>
                 ))}
               </div>
-
               <div className="grid grid-cols-2 gap-4 justify-items-center">
                 <Knob label="DRIVE" size="sm" color="orange-500" value={state.tubeDrive} onChange={(v) => onChange({ tubeDrive: v })} />
                 <Knob label="WET" size="sm" color="orange-500" value={state.tubeWet} onChange={(v) => onChange({ tubeWet: v })} />
@@ -245,13 +284,7 @@ const ControlPanel: React.FC<ControlPanelProps> = ({ state, onChange, onReset })
                  <h3 className="text-[11px] text-cyan-400 font-black uppercase tracking-widest italic">DELAY</h3>
                  <div className="grid grid-cols-5 gap-1">
                     {['1/4', '1/4D', '1/4T', '1/8', '1/8D', '1/8T', '1/16', '1/16D', '1/16T', '1/3', '1/5'].map(div => (
-                      <button 
-                        key={div} 
-                        onClick={() => onChange({ delayDivision: div as DelayDivision })} 
-                        className={`px-1 py-1 rounded text-[9px] font-black border-2 transition-all ${state.delayDivision === div ? 'bg-cyan-500 text-black border-cyan-400' : 'text-cyan-500 border-cyan-900/30'}`}
-                      >
-                        {div}
-                      </button>
+                      <button key={div} onClick={() => onChange({ delayDivision: div as DelayDivision })} className={`px-1 py-1 rounded text-[9px] font-black border-2 transition-all ${state.delayDivision === div ? 'bg-cyan-500 text-black border-cyan-400' : 'text-cyan-500 border-cyan-900/30'}`}>{div}</button>
                     ))}
                  </div>
               </div>
@@ -309,92 +342,128 @@ const ControlPanel: React.FC<ControlPanelProps> = ({ state, onChange, onReset })
              <button onClick={onReset} className="px-8 py-3 bg-[#800] text-white text-[14px] font-black tracking-widest rounded-full uppercase shadow-lg hover:brightness-110 active:translate-y-0.5 transition-all">Factory Reset</button>
           </div>
         ) : (
-          <div className="flex flex-col gap-5 py-2">
-             <div className="bg-[#1a1a1a] p-5 rounded-3xl border-2 border-indigo-500/30 space-y-6">
-                <div className="space-y-4">
-                  <h3 className="text-[11px] text-indigo-400 font-black tracking-widest uppercase italic">CHORD MIDI OUT</h3>
-                  <div className="space-y-2">
-                    <label className="text-[9px] text-zinc-500 uppercase font-black tracking-wider">OUTPUT DEVICE</label>
-                    <select 
-                      value={state.midiChordOutputId} 
-                      onChange={(e) => onChange({ midiChordOutputId: e.target.value })}
-                      className="w-full bg-zinc-900 text-zinc-300 border border-zinc-800 rounded-lg p-2 text-[10px] font-bold outline-none appearance-none cursor-pointer"
-                    >
-                      <option value="none">OFF</option>
-                      <option value="all">ALL PORTS</option>
-                      {outputs.map(o => <option key={o.id} value={o.id}>{o.name}</option>)}
-                    </select>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <label className="text-[9px] text-zinc-500 uppercase font-black tracking-wider">CH 1-16</label>
-                    <input 
-                      type="range" min="1" max="16" step="1" 
-                      value={state.midiChordChannel} 
-                      onChange={(e) => onChange({ midiChordChannel: parseInt(e.target.value) })}
-                      className="w-2/3 accent-indigo-500"
-                    />
-                    <span className="w-8 text-center text-[10px] font-black text-indigo-400">{state.midiChordChannel}</span>
-                  </div>
-                </div>
-
-                <div className="h-px bg-zinc-800" />
-
-                <div className="space-y-4">
-                  <h3 className="text-[11px] text-indigo-400 font-black tracking-widest uppercase italic">HARP MIDI OUT</h3>
-                  <div className="space-y-2">
-                    <label className="text-[9px] text-zinc-500 uppercase font-black tracking-wider">OUTPUT DEVICE</label>
-                    <select 
-                      value={state.midiHarpOutputId} 
-                      onChange={(e) => onChange({ midiHarpOutputId: e.target.value })}
-                      className="w-full bg-zinc-900 text-zinc-300 border border-zinc-800 rounded-lg p-2 text-[10px] font-bold outline-none appearance-none cursor-pointer"
-                    >
-                      <option value="none">OFF</option>
-                      <option value="all">ALL PORTS</option>
-                      {outputs.map(o => <option key={o.id} value={o.id}>{o.name}</option>)}
-                    </select>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <label className="text-[9px] text-zinc-500 uppercase font-black tracking-wider">CH 1-16</label>
-                    <input 
-                      type="range" min="1" max="16" step="1" 
-                      value={state.midiHarpChannel} 
-                      onChange={(e) => onChange({ midiHarpChannel: parseInt(e.target.value) })}
-                      className="w-2/3 accent-indigo-500"
-                    />
-                    <span className="w-8 text-center text-[10px] font-black text-indigo-400">{state.midiHarpChannel}</span>
-                  </div>
-                </div>
-
-                <div className="h-px bg-zinc-800" />
-
-                <div className="space-y-4">
-                  <h3 className="text-[11px] text-indigo-400 font-black tracking-widest uppercase italic">MIDI INPUT</h3>
-                  <div className="space-y-2">
-                    <select 
-                      value={state.midiInputId} 
-                      onChange={(e) => onChange({ midiInputId: e.target.value })}
-                      className="w-full bg-zinc-900 text-zinc-300 border border-zinc-800 rounded-lg p-2 text-[10px] font-bold outline-none appearance-none cursor-pointer"
-                    >
-                      <option value="none">INPUT DISABLED</option>
-                      <option value="all">OMNI (ALL DEVICES)</option>
-                      {inputs.map(i => <option key={i.id} value={i.id}>{i.name}</option>)}
-                    </select>
-                  </div>
-                  {lastMessage && (
-                    <div className="bg-black p-2 rounded border border-indigo-500/20">
-                      <p className="text-[9px] font-mono text-indigo-400 animate-pulse">{lastMessage}</p>
-                    </div>
-                  )}
-                  <p className="text-[8px] text-zinc-600 italic tracking-wider leading-tight uppercase font-black">
-                    Note Mappings: C0-C6 Octave Triggers implementation scheduled for next build.
-                  </p>
-                </div>
+          <div className="flex flex-col h-full bg-[#1a1a1a] p-4 rounded-3xl border-2 border-indigo-500/30 overflow-hidden">
+             
+             {/* Sub-tabs for MIDI IO */}
+             <div className="flex bg-black/40 rounded-xl p-1 mb-4 border border-indigo-500/10">
+                {(['MIDI OUT', 'MIDI IN', 'MIDI LOG'] as const).map(tab => (
+                  <button 
+                    key={tab}
+                    onClick={() => setIoSubTab(tab)}
+                    className={`flex-1 py-1.5 text-[9px] font-black tracking-widest transition-all rounded-lg ${
+                      ioSubTab === tab ? 'bg-indigo-600 text-white shadow-lg' : 'text-indigo-400/50 hover:text-indigo-400'
+                    }`}
+                  >
+                    {tab}
+                  </button>
+                ))}
              </div>
-             <button onClick={() => {
-               midiService.init();
-               setDevices(midiService.getDevices());
-             }} className="w-full py-3 bg-indigo-900/20 text-indigo-400 text-[10px] font-black tracking-widest rounded-xl border border-indigo-500/20 uppercase hover:bg-indigo-900/40 transition-colors">
-               Probe MIDI Subsystem
+
+             <div className="flex-1 overflow-y-auto custom-scrollbar space-y-4 px-1">
+                {ioSubTab === 'MIDI OUT' ? (
+                  <div className="space-y-4">
+                    <h3 className="text-[11px] text-indigo-400 font-black tracking-widest uppercase italic border-b border-indigo-500/20 pb-2">MIDI OUTPUT DEVICES</h3>
+                    
+                    <div className="bg-black/20 rounded-xl p-3 space-y-3 border border-indigo-500/10">
+                      <h4 className="text-[10px] text-zinc-400 font-black tracking-wider uppercase">CHORD SIGNAL</h4>
+                      <select 
+                        value={state.midiChordOutputId} 
+                        onChange={(e) => onChange({ midiChordOutputId: e.target.value })}
+                        className="w-full bg-[#111] text-[#eee] border-2 border-[#444] rounded-lg p-2 text-[10px] font-bold outline-none cursor-pointer hover:border-indigo-500 focus:border-indigo-500 transition-all appearance-none"
+                        style={{ backgroundImage: 'linear-gradient(45deg, transparent 50%, #888 50%), linear-gradient(135deg, #888 50%, transparent 50%)', backgroundPosition: 'calc(100% - 20px) center, calc(100% - 15px) center', backgroundSize: '5px 5px, 5px 5px', backgroundRepeat: 'no-repeat' }}
+                      >
+                        <option value="none">OFF</option>
+                        <option value="all">ALL PORTS</option>
+                        {outputs.map(o => <option key={o.id} value={o.id}>{o.name}</option>)}
+                      </select>
+                      <div className="flex items-center justify-between px-1">
+                        <label className="text-[9px] text-zinc-500 uppercase font-black tracking-wider">CH {state.midiChordChannel}</label>
+                        <input 
+                          type="range" min="1" max="16" step="1" 
+                          value={state.midiChordChannel} 
+                          onChange={(e) => onChange({ midiChordChannel: parseInt(e.target.value) })}
+                          className="w-2/3 accent-indigo-500"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="bg-black/20 rounded-xl p-3 space-y-3 border border-indigo-500/10">
+                      <h4 className="text-[10px] text-zinc-400 font-black tracking-wider uppercase">HARP SIGNAL</h4>
+                      <select 
+                        value={state.midiHarpOutputId} 
+                        onChange={(e) => onChange({ midiHarpOutputId: e.target.value })}
+                        className="w-full bg-[#111] text-[#eee] border-2 border-[#444] rounded-lg p-2 text-[10px] font-bold outline-none cursor-pointer hover:border-indigo-500 focus:border-indigo-500 transition-all appearance-none"
+                        style={{ backgroundImage: 'linear-gradient(45deg, transparent 50%, #888 50%), linear-gradient(135deg, #888 50%, transparent 50%)', backgroundPosition: 'calc(100% - 20px) center, calc(100% - 15px) center', backgroundSize: '5px 5px, 5px 5px', backgroundRepeat: 'no-repeat' }}
+                      >
+                        <option value="none">OFF</option>
+                        <option value="all">ALL PORTS</option>
+                        {outputs.map(o => <option key={o.id} value={o.id}>{o.name}</option>)}
+                      </select>
+                      <div className="flex items-center justify-between px-1">
+                        <label className="text-[9px] text-zinc-500 uppercase font-black tracking-wider">CH {state.midiHarpChannel}</label>
+                        <input 
+                          type="range" min="1" max="16" step="1" 
+                          value={state.midiHarpChannel} 
+                          onChange={(e) => onChange({ midiHarpChannel: parseInt(e.target.value) })}
+                          className="w-2/3 accent-indigo-500"
+                        />
+                      </div>
+                    </div>
+                  </div>
+                ) : ioSubTab === 'MIDI IN' ? (
+                  <div className="space-y-4">
+                    <h3 className="text-[11px] text-indigo-400 font-black tracking-widest uppercase italic border-b border-indigo-500/20 pb-2">MIDI INPUT & OCTAVE MAPPING</h3>
+                    
+                    <div className="space-y-3">
+                      <select 
+                        value={state.midiInputId} 
+                        onChange={(e) => onChange({ midiInputId: e.target.value })}
+                        className="w-full bg-[#111] text-[#eee] border-2 border-[#444] rounded-lg p-2 text-[10px] font-bold outline-none cursor-pointer hover:border-indigo-500 focus:border-indigo-500 transition-all appearance-none"
+                        style={{ backgroundImage: 'linear-gradient(45deg, transparent 50%, #888 50%), linear-gradient(135deg, #888 50%, transparent 50%)', backgroundPosition: 'calc(100% - 20px) center, calc(100% - 15px) center', backgroundSize: '5px 5px, 5px 5px', backgroundRepeat: 'no-repeat' }}
+                      >
+                        <option value="none">INPUT DISABLED</option>
+                        <option value="all">OMNI (ALL DEVICES)</option>
+                        {inputs.map(i => <option key={i.id} value={i.id}>{i.name}</option>)}
+                      </select>
+                    </div>
+
+                    <div className="bg-black/20 rounded-xl p-3 space-y-3 border border-indigo-500/10">
+                      <div className="grid grid-cols-2 gap-2 text-[10px] text-zinc-500 font-black tracking-widest px-1 uppercase mb-2">
+                        <span>MIDI RANGE</span>
+                        <span>CHORD MODE</span>
+                      </div>
+                      {[0, 1, 2, 3, 4, 5, 6].map(oct => (
+                        <div key={oct} className="grid grid-cols-2 gap-3 items-center">
+                          <span className="text-[14px] text-zinc-200 font-black tracking-tight font-mono">C{oct} - B{oct}</span>
+                          <select 
+                            value={state.midiOctaveMap[oct] || 'None'}
+                            onChange={(e) => updateOctaveMap(oct, e.target.value as ChordModeKey)}
+                            className="bg-[#111] text-indigo-400 border-2 border-[#444] rounded-lg px-2 py-1.5 text-[12px] font-black outline-none focus:border-indigo-500 transition-all cursor-pointer"
+                          >
+                            {chordModes.map(m => <option key={m} value={m}>{m}</option>)}
+                          </select>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ) : (
+                  <div className="space-y-4 h-full flex flex-col">
+                    <h3 className="text-[11px] text-indigo-400 font-black tracking-widest uppercase italic border-b border-indigo-500/20 pb-2">MIDI EVENT LOG</h3>
+                    <div className="bg-black/40 rounded-xl p-4 border border-indigo-500/10 font-mono text-[13px] text-indigo-400 flex-1 min-h-[360px] max-h-[480px] overflow-y-auto custom-scrollbar">
+                      {midiLogs.length === 0 ? (
+                        <div className="h-full flex items-center justify-center opacity-30 italic">No MIDI data detected...</div>
+                      ) : (
+                        midiLogs.map((log, i) => (
+                          <div key={i} className="mb-2 border-b border-indigo-500/5 pb-2 last:border-0 leading-relaxed font-black tracking-tight">{log}</div>
+                        ))
+                      )}
+                    </div>
+                  </div>
+                )}
+             </div>
+             
+             <button onClick={handleRefreshDevices} className="mt-4 w-full py-2 bg-indigo-900/20 text-indigo-400 text-[10px] font-black tracking-widest rounded-xl border border-indigo-500/20 uppercase hover:bg-indigo-900/40 transition-colors">
+               Refresh Devices
              </button>
           </div>
         )}
