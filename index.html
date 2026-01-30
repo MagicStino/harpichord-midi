@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>HARPICHORD</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;700;900&family=Roboto+Mono:wght@400;700&family=VT323&display=swap" rel="stylesheet">
+    <style>
+        body {
+            background-color: #121212;
+            color: #e0e0e0;
+            overflow: hidden;
+            user-select: none;
+            font-family: 'Inter', sans-serif;
+        }
+        .omnichord-body {
+            background: #e6d5b8;
+            background-image: radial-gradient(#f7ead3 1px, transparent 0);
+            background-size: 40px 40px;
+            box-shadow: 
+                0 25px 60px rgba(0,0,0,0.6),
+                inset 0 2px 5px rgba(255,255,255,0.8),
+                inset 0 -8px 20px rgba(0,0,0,0.25);
+        }
+        .sonic-strings-plate {
+            background: linear-gradient(to right, #bf953f, #fcf6ba, #b38728, #fbf5b7, #aa771c);
+            box-shadow: inset 0 0 10px rgba(0,0,0,0.3), 2px 2px 5px rgba(0,0,0,0.2);
+        }
+        .retro-knob {
+            background: #333;
+            border: 2px solid #555;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+        }
+        .chord-button {
+            border-radius: 50%;
+            transition: all 0.1s ease;
+            box-shadow: 0 3px 0 #8d7d5d, inset 0 1px 2px rgba(255,255,255,0.5);
+        }
+        .chord-button:active, .chord-button.active {
+            transform: translateY(2px);
+            box-shadow: 0 1px 0 #8d7d5d, inset 0 2px 4px rgba(0,0,0,0.15);
+        }
+        .branding-text {
+            font-weight: 900;
+            font-style: italic;
+            letter-spacing: -0.05em;
+            color: #6d5d42;
+        }
+        .lcd-text {
+            font-family: 'VT323', monospace;
+            text-shadow: 0 0 8px rgba(255, 140, 0, 0.8);
+        }
+        /* Custom scrollbar for control panel */
+        .custom-scrollbar::-webkit-scrollbar {
+          width: 4px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-track {
+          background: rgba(0, 0, 0, 0.05);
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb {
+          background: rgba(0, 0, 0, 0.2);
+          border-radius: 10px;
+        }
+    </style>
+<script type="importmap">
+{
+  "imports": {
+    "react": "https://esm.sh/react@^19.2.3",
+    "react/": "https://esm.sh/react@^19.2.3/",
+    "react-dom/": "https://esm.sh/react-dom@^19.2.3/",
+    "path": "https://esm.sh/path@^0.12.7",
+    "vite": "https://esm.sh/vite@^7.3.1",
+    "@vitejs/plugin-react": "https://esm.sh/@vitejs/plugin-react@^5.1.2",
+    "url": "https://esm.sh/url@^0.11.4",
+    "lucide-react": "https://esm.sh/lucide-react@^0.563.0"
+  }
+}
+</script>
+</head>
+<body>
+    <div id="root"></div>
+<script type="module" src="/index.tsx"></script>
+</body>
+</html>
