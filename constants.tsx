@@ -1,7 +1,7 @@
+
 import { ChordDefinition } from './types';
 
 // Root notes in MIDI offsets (C = 0, Db = 1, etc.)
-// Each root now has an explicit array of keys for the 3 rows: [Row 0 (Major), Row 1 (Minor), Row 2 (7th/etc)]
 const ROOTS = [
   { name: 'Db', offset: 1, keys: ['Q', 'A', 'Z'] },
   { name: 'Ab', offset: 8, keys: ['W', 'S', 'X'] },
@@ -37,10 +37,10 @@ export const MIN7_CHORDS = generateRow('Minor 7', 'm7', [0, 3, 7, 10], 0);
 export const MAJ7_CHORDS = generateRow('Major 7', 'maj7', [0, 4, 7, 11], 1);
 export const ADD9_CHORDS = generateRow('Add9', 'add9', [0, 4, 7, 14], 2);
 
-// PAGE 3 – Tension / Neutral: Sus4 · Power (5) · Diminished
+// PAGE 3 – Tension / Neutral: Sus4 · Power (5) · m7b5
 export const SUS4_CHORDS = generateRow('Sus4', 'sus4', [0, 5, 7], 0);
 export const POWER_CHORDS = generateRow('Power', '5', [0, 7], 1);
-export const DIM_CHORDS = generateRow('Diminished', 'dim', [0, 3, 6], 2);
+export const M7B5_CHORDS = generateRow('m7b5', 'ø', [0, 3, 6, 10], 2);
 
-// Harp keys restricted to 1-0 and -= to prevent overlap with [ ] chord keys
+// Harp keys restricted to 1-0 and -=
 export const HARP_KEYS = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '0', '-', '='];

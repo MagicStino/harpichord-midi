@@ -169,7 +169,7 @@ const ControlPanel: React.FC<ControlPanelProps> = ({ state, onChange, onReset })
     onChange({ midiOctaveMap: newMap });
   };
 
-  const chordModes: ChordModeKey[] = ['None', 'Major', 'Minor', 'Dominant 7', 'Minor 7', 'Major 7', 'Add9', 'Sus4', 'Power', 'Diminished'];
+  const chordModes: ChordModeKey[] = ['None', 'Major', 'Minor', 'Dominant 7', 'Minor 7', 'Major 7', 'Add9', 'Sus4', 'Power', 'm7b5'];
 
   return (
     <div className="flex flex-col h-fit max-h-[880px] bg-[#dcd0b8] rounded-[2.5rem] border-[4px] border-[#bdae93] shadow-[inset_0_4px_10px_rgba(0,0,0,0.1)] text-orange-950 font-black uppercase tracking-tight overflow-hidden">
@@ -284,7 +284,6 @@ const ControlPanel: React.FC<ControlPanelProps> = ({ state, onChange, onReset })
               <div className="flex flex-col gap-2">
                  <h3 className="text-[11px] text-cyan-400 font-black uppercase tracking-widest italic">DELAY</h3>
                  <div className="grid grid-cols-4 gap-1">
-                    {/* V6.04 Updated Delay Divisions */}
                     {['1/2', '1/4', '1/4D', '1/8', '1/8D', '5/16', '5/8', '7/8', '1/4T', '1/8T', '1/16T'].map(div => (
                       <button key={div} onClick={() => onChange({ delayDivision: div as DelayDivision })} className={`px-1 py-2 rounded text-[12px] font-black border-2 transition-all ${state.delayDivision === div ? 'bg-cyan-500 text-black border-cyan-400 shadow-[0_0_10px_rgba(6,182,212,0.4)]' : 'text-cyan-500 border-cyan-900/30'}`}>{div}</button>
                     ))}

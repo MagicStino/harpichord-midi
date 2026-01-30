@@ -1,10 +1,10 @@
 
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { OmnichordState, ChordDefinition, RhythmPattern, DelayDivision, ChordModeKey } from './types';
 import { 
   MAJOR_CHORDS, MINOR_CHORDS, DOM7_CHORDS,
   MIN7_CHORDS, MAJ7_CHORDS, ADD9_CHORDS,
-  SUS4_CHORDS, POWER_CHORDS, DIM_CHORDS,
+  SUS4_CHORDS, POWER_CHORDS, M7B5_CHORDS,
   HARP_KEYS 
 } from './constants';
 import { audioEngine } from './services/audioEngine';
@@ -78,29 +78,8 @@ const App: React.FC = () => {
   const [activeMidiNote, setActiveMidiNote] = useState<number | null>(null);
 
   const lastZone = useRef<number | null>(null);
-  
   const lastMidiTime = useRef<number>(0);
   const midiEventCounter = useRef<number>(0);
-
-  useEffect(() => {
-    const saved = localStorage.getItem(STORAGE_KEY);
-    if (saved) {
-      try {
-        const parsed = JSON.parse(saved);
-        setState(prev => ({ 
-          ...prev, 
-          ...parsed, 
-          currentChord: null, 
-          isPlaying: false, 
-          useTouchpad: false 
-        }));
-      } catch (e) {
-        console.warn("Autoload error:", e);
-      }
-    }
-    midiService.init().catch(() => {});
-    setInitialized(true);
-  }, []);
 
   const syncEngine = useCallback((s: OmnichordState) => {
     if (!audioEngine.ctx) return;
@@ -132,13 +111,35 @@ const App: React.FC = () => {
     });
   }, []);
 
-  const initAudioOnInteraction = async () => {
+  const initAudioOnInteraction = useCallback(async () => {
     if (!audioEngine.ctx || audioEngine.ctx.state !== 'running') {
       await audioEngine.init();
       syncEngine(state);
       await midiService.init();
     }
-  };
+  }, [state, syncEngine]);
+
+  useEffect(() => {
+    const saved = localStorage.getItem(STORAGE_KEY);
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved);
+        // Force silent rhythm on startup
+        setState(prev => ({ 
+          ...prev, 
+          ...parsed, 
+          currentChord: null, 
+          isPlaying: false, 
+          useTouchpad: false,
+          rhythm: RhythmPattern.NONE
+        }));
+      } catch (e) {
+        console.warn("Autoload error:", e);
+      }
+    }
+    midiService.init().catch(() => {});
+    setInitialized(true);
+  }, []);
 
   const handleChordPress = useCallback((chord: ChordDefinition | null) => {
     if (!chord) return;
@@ -148,7 +149,7 @@ const App: React.FC = () => {
       midiService.sendChord(chord, state.midiChordOutputId, state.midiChordChannel);
     }
     setState(prev => ({ ...prev, currentChord: chord }));
-  }, [state.midiChordOutputId, state.midiChordChannel, state]); 
+  }, [state.midiChordOutputId, state.midiChordChannel, initAudioOnInteraction]); 
 
   const handleHarpTrigger = useCallback((index: number) => {
     initAudioOnInteraction();
@@ -170,7 +171,7 @@ const App: React.FC = () => {
       setLastStrumNote({ midi: midiNote, time: Date.now() });
       setTouchpadStrumIndex({ index, time: Date.now() });
     }
-  }, [state.currentChord, state.octave, state.harpOctave, state.midiHarpOutputId, state.midiHarpChannel]);
+  }, [state.currentChord, state.octave, state.harpOctave, state.midiHarpOutputId, state.midiHarpChannel, initAudioOnInteraction]);
 
   useEffect(() => {
     const handleMidiMessage = (message: Uint8Array, id: string) => {
@@ -210,7 +211,7 @@ const App: React.FC = () => {
               case 'Add9': pool = ADD9_CHORDS; break;
               case 'Sus4': pool = SUS4_CHORDS; break;
               case 'Power': pool = POWER_CHORDS; break;
-              case 'Diminished': pool = DIM_CHORDS; break;
+              case 'm7b5': pool = M7B5_CHORDS; break;
             }
             
             const chord = pool.find(c => c.root === rootName);
@@ -275,8 +276,13 @@ const App: React.FC = () => {
         if (newState.rhythm !== RhythmPattern.NONE) audioEngine.startRhythm(newState.rhythm);
       }
       if (updates.rhythm !== undefined) {
-        if (newState.rhythm === RhythmPattern.NONE) audioEngine.stopRhythm();
-        else audioEngine.startRhythm(newState.rhythm);
+        if (newState.rhythm === RhythmPattern.NONE) {
+          audioEngine.stopRhythm();
+        } else {
+          initAudioOnInteraction().then(() => {
+            audioEngine.startRhythm(newState.rhythm);
+          });
+        }
       }
       if (updates.octave !== undefined) {
         audioEngine.setOctave(newState.octave);
@@ -320,16 +326,19 @@ const App: React.FC = () => {
       }
       return newState;
     });
-  }, []);
+  }, [initAudioOnInteraction]);
 
   const handleReset = useCallback(() => {
     setState(INITIAL_STATE);
     localStorage.removeItem(STORAGE_KEY);
     audioEngine.stopChord(true);
     audioEngine.stopRhythm();
+    // Explicitly sync the audio engine back to defaults
+    syncEngine(INITIAL_STATE);
     setLastStrumNote(null);
     setTouchpadStrumIndex(null);
-  }, []);
+    setActiveMidiNote(null);
+  }, [syncEngine]);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -343,7 +352,7 @@ const App: React.FC = () => {
       let currentSetChords: ChordDefinition[] = [];
       switch (state.chordPage) {
         case 1: currentSetChords = [...MIN7_CHORDS, ...MAJ7_CHORDS, ...ADD9_CHORDS]; break;
-        case 2: currentSetChords = [...SUS4_CHORDS, ...POWER_CHORDS, ...DIM_CHORDS]; break;
+        case 2: currentSetChords = [...SUS4_CHORDS, ...POWER_CHORDS, ...M7B5_CHORDS]; break;
         default: currentSetChords = [...MAJOR_CHORDS, ...MINOR_CHORDS, ...DOM7_CHORDS];
       }
       const chordMatch = currentSetChords.find(c => {
@@ -365,7 +374,7 @@ const App: React.FC = () => {
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [state.chordPage, handleChordPress, handleHarpTrigger]);
+  }, [state.chordPage, handleChordPress, handleHarpTrigger, initAudioOnInteraction]);
 
   const updateScale = useCallback(() => {
     const baseW = 1780; 
@@ -394,8 +403,7 @@ const App: React.FC = () => {
               <div className={`w-5 h-5 rounded-full border-2 border-black/40 transition-all duration-700 ${initialized ? 'bg-green-600 shadow-[0_0_20px_rgba(22,163,74,0.6)]' : 'bg-green-950'}`} />
               <div className="w-px h-6 bg-black/15" />
               <div className="flex flex-col">
-                  {/* Updated Version to 6.04 */}
-                  <span className="text-[10px] font-black text-orange-900/60 tracking-[0.2em] uppercase leading-none">V6.04 OMNI_CORE</span>
+                  <span className="text-[10px] font-black text-orange-900/60 tracking-[0.2em] uppercase leading-none">V6.07 HARPICHORD</span>
               </div>
             </div>
             <div className="flex flex-col">
@@ -453,7 +461,6 @@ const App: React.FC = () => {
                 onTrigger={handleHarpTrigger}
                 lastTriggeredIndex={touchpadStrumIndex}
              />
-             {/* V6.04: Corrected shadow from 120px to 10px to fix position of black mask */}
              <button onClick={() => handleStateChange({ useTouchpad: !state.useTouchpad })} className={`w-[90px] h-[90px] rounded-[2rem] border-[4px] border-black transition-all flex items-center justify-center cursor-pointer shadow-[0_10px_0_#000] active:translate-y-2 active:shadow-none group ${state.useTouchpad ? 'bg-orange-600 border-orange-800' : 'bg-[#1a1a1a] border-[#0a0a0a]'}`}>
                 <div className="flex flex-col items-center leading-none text-white group-active:scale-90 transition-transform text-center">
                     <span className={`text-[12px] font-black tracking-widest mb-2 ${state.useTouchpad ? 'text-black' : 'opacity-40'}`}>TOUCH</span>

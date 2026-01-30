@@ -77,7 +77,7 @@ class AudioEngine {
   private vibratoAmount: number = 0;
   private vibratoRate: number = 5;
 
-  private firstChordPlayed: boolean = false;
+  private audioOpened: boolean = false;
 
   private safeTarget(param: AudioParam | undefined, value: number, time?: number, ramp?: number) {
     if (!param || !this.ctx) return;
@@ -115,7 +115,6 @@ class AudioEngine {
 
       const now = ctx.currentTime;
 
-      // Master Gain Stage
       const compressor = ctx.createDynamicsCompressor();
       const masterGain = ctx.createGain();
       masterGain.gain.setValueAtTime(0, now);
@@ -248,10 +247,21 @@ class AudioEngine {
       
       if (ctx.state === 'running') {
         this.safeTarget(this.masterGain.gain, 1.0, ctx.currentTime, 0.1);
+        this.audioOpened = true;
       }
     })();
 
     return this.initPromise;
+  }
+
+  private async ensureAudioOpened() {
+    if (!this.ctx) await this.init();
+    if (!this.ctx) return;
+    if (!this.audioOpened) {
+      if (this.ctx.state !== 'running') await this.ctx.resume();
+      this.safeTarget(this.masterGain?.gain, 1, this.ctx.currentTime, 0.1);
+      this.audioOpened = true;
+    }
   }
 
   setChordVolume(v: number) { this.safeTarget(this.chordSource?.gain, v * 0.4); }
@@ -317,7 +327,6 @@ class AudioEngine {
   updateDelay(div: DelayDivision, fb: number, tone: number, spread: number) {
     if (!this.delayNodeL || !this.delayNodeR || !this.delayFeedback || !this.delayFilter) return;
     const beatTime = 60 / this.tempo;
-    // V6.04 Updated subdivisions mapping
     const divisions: Record<string, number> = {
       '1/2': 2.0, '1/4': 1.0, '1/4D': 1.5, '1/8': 0.5, '1/8D': 0.75,
       '5/16': 0.625, '5/8': 2.5, '7/8': 3.5, '1/4T': 0.666, '1/8T': 0.333, '1/16T': 0.166
@@ -349,23 +358,14 @@ class AudioEngine {
   }
 
   async playChord(chord: ChordDefinition) {
-    if (!this.ctx) await this.init();
+    await this.ensureAudioOpened();
     if (!this.ctx) return;
-    
     const now = this.ctx.currentTime;
     
-    if (!this.firstChordPlayed) {
-      if (this.ctx.state !== 'running') await this.ctx.resume();
-      this.safeTarget(this.masterGain?.gain, 1, now, 0.1);
-      this.firstChordPlayed = true;
-    }
-
-    // V6.04: Crossfade chords polyphonically. Previous voices ring out with Release time.
     this.stopChord(false); 
 
     if (this.bassEnabled) {
       const freq = 130.81 * Math.pow(2, this.octaveShift) * Math.pow(2, (chord.intervals[0] - 12) / 12);
-      
       const oscSine = this.ctx.createOscillator();
       const gainSine = this.ctx.createGain();
       oscSine.type = 'sine';
@@ -397,7 +397,6 @@ class AudioEngine {
       const osc = this.ctx!.createOscillator();
       const gain = this.ctx!.createGain();
       const filter = this.ctx!.createBiquadFilter();
-      
       osc.type = this.chordWaveform;
       osc.frequency.setValueAtTime(130.81 * Math.pow(2, this.octaveShift) * Math.pow(2, interval / 12), now);
       
@@ -416,7 +415,6 @@ class AudioEngine {
       filter.type = 'lowpass';
       filter.frequency.setValueAtTime(100 + (this.chordCutoff * 5000), now);
       gain.gain.setValueAtTime(0, now);
-      // V6.04: Explicit anchor at 0 before linear ramp to Attack value.
       gain.gain.linearRampToValueAtTime(0.25, now + this.chordAttack);
       osc.connect(filter); filter.connect(gain);
       if (this.chordSource) gain.connect(this.chordSource);
@@ -428,12 +426,10 @@ class AudioEngine {
   stopChord(immediate = false, customRelease?: number) {
     if (!this.ctx) return;
     const now = this.ctx.currentTime;
-    // V6.04: Use Release knob value for tail fading.
     const release = customRelease ?? (immediate ? 0.005 : this.chordRelease);
     
     this.chordOscillators.forEach((active) => {
       active.gain.gain.cancelScheduledValues(now);
-      // Capture current value to ensure smooth ramp start.
       active.gain.gain.setValueAtTime(active.gain.gain.value, now);
       active.gain.gain.linearRampToValueAtTime(0, now + release);
       active.osc.stop(now + release + 0.1);
@@ -446,13 +442,12 @@ class AudioEngine {
       osc.stop(now + release + 0.1);
     });
     
-    // Voices ring out in background, but we clear management array for new triggers.
     this.chordOscillators = [];
     this.bassOscillators = [];
   }
 
   async playHarpNote(chord: ChordDefinition, index: number) {
-    if (!this.ctx) await this.init();
+    await this.ensureAudioOpened();
     if (!this.ctx) return;
     const now = this.ctx.currentTime;
     
@@ -477,9 +472,14 @@ class AudioEngine {
     osc.start(now); osc.stop(now + decay + 0.1);
   }
 
-  startRhythm(pattern: RhythmPattern) {
+  async startRhythm(pattern: RhythmPattern) {
     this.stopRhythm();
-    if (pattern === RhythmPattern.NONE || !this.ctx) return;
+    if (pattern === RhythmPattern.NONE) return;
+    
+    // V6.06: Ensure audio context and master gain are active before starting rhythm
+    await this.ensureAudioOpened();
+    if (!this.ctx) return;
+    
     const beatLen = 60 / this.tempo;
     let step = 0;
     

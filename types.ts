@@ -38,7 +38,7 @@ export interface MidiDevice {
   type: 'input' | 'output';
 }
 
-export type ChordModeKey = 'Major' | 'Minor' | 'Dominant 7' | 'Minor 7' | 'Major 7' | 'Add9' | 'Sus4' | 'Power' | 'Diminished' | 'None';
+export type ChordModeKey = 'Major' | 'Minor' | 'Dominant 7' | 'Minor 7' | 'Major 7' | 'Add9' | 'Sus4' | 'Power' | 'm7b5' | 'None';
 
 export interface OmnichordState {
   currentChord: ChordDefinition | null;
