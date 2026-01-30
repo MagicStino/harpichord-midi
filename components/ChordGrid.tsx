@@ -47,7 +47,7 @@ const ChordGrid: React.FC<ChordGridProps> = ({ activeChord, currentPage, onPress
   return (
     <div className="flex flex-col items-center w-full">
       {/* RETRO LCD DISPLAY */}
-      <div className="w-[345px] h-[83px] mb-10 bg-[#0a0a0a] rounded-[2rem] border-[4px] border-[#1a1a1a] shadow-[inset_0_4px_10px_rgba(0,0,0,0.9),0_4px_15px_rgba(0,0,0,0.4)] flex flex-col items-center justify-center relative overflow-hidden">
+      <div className="w-[365px] h-[95px] mb-10 bg-[#0a0a0a] rounded-[2rem] border-[4px] border-[#1a1a1a] shadow-[inset_0_4px_10px_rgba(0,0,0,0.9),0_4px_15px_rgba(0,0,0,0.4)] flex flex-col items-center justify-center relative overflow-hidden">
         <div className="absolute inset-0 opacity-[0.08] pointer-events-none" style={{ 
           backgroundImage: 'linear-gradient(rgba(255,165,0,0.05) 1px, transparent 1px)',
           backgroundSize: '100% 3px'
@@ -63,14 +63,17 @@ const ChordGrid: React.FC<ChordGridProps> = ({ activeChord, currentPage, onPress
               </div>
             </div>
           ) : (
-            <>
-              <div className="lcd-text text-orange-500/90 text-[20px] uppercase tracking-wide text-center drop-shadow-[0_0_4px_rgba(249,115,22,0.2)] mb-1.5">
-                READY • LATCH MODE
+            <div className="flex flex-col items-center gap-1">
+              <div className="lcd-text text-orange-500/90 text-[20px] uppercase tracking-[0.1em] text-center drop-shadow-[0_0_4px_rgba(249,115,22,0.2)]">
+                A-Z CHORDS • 0-9 STRUM
               </div>
-              <div className="lcd-text text-orange-500/90 text-[20px] uppercase tracking-wide text-center drop-shadow-[0_0_4px_rgba(249,115,22,0.2)]">
+              <div className="lcd-text text-orange-500/90 text-[18px] uppercase tracking-[0.1em] text-center drop-shadow-[0_0_4px_rgba(249,115,22,0.2)]">
+                TAB PAGES • OMNI V4.94
+              </div>
+              <div className="lcd-text text-orange-500/30 text-[10px] uppercase tracking-[0.3em] mt-1 italic">
                 {getMidiModeLabel()}
               </div>
-            </>
+            </div>
           )}
         </div>
       </div>

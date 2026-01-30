@@ -84,7 +84,6 @@ const App: React.FC = () => {
     if (saved) {
       try {
         const parsed = JSON.parse(saved);
-        // Explicitly hydrate state but reset volatile playback variables
         setState(prev => ({ 
           ...prev, 
           ...parsed, 
@@ -96,7 +95,6 @@ const App: React.FC = () => {
         console.warn("Autoload corrupted:", e);
       }
     }
-    // Probe MIDI immediately but it might need user interaction to fully open ports
     midiService.init().catch(() => {});
     setInitialized(true);
   }, []);
@@ -150,7 +148,7 @@ const App: React.FC = () => {
     }
 
     setState(prev => ({ ...prev, currentChord: chord }));
-  }, [state.midiChordOutputId, state.midiChordChannel, syncEngine, state]); 
+  }, [state.midiChordOutputId, state.midiChordChannel, state]); 
 
   const handleHarpTrigger = useCallback((index: number) => {
     initAudioOnInteraction();
@@ -177,7 +175,6 @@ const App: React.FC = () => {
     }
   }, [state.currentChord, state.octave, state.harpOctave, state.midiHarpOutputId, state.midiHarpChannel]);
 
-  // MIDI Input Listener
   useEffect(() => {
     const handleMidiMessage = (message: Uint8Array, id: string) => {
       if (state.midiInputId !== 'all' && state.midiInputId !== id) return;
@@ -186,9 +183,9 @@ const App: React.FC = () => {
       const type = status & 0xf0;
       
       if (type === 0x90 && data2 > 0) {
-        if (data1 === 60) setMidiMode(0); // C4 -> Major
-        else if (data1 === 72) setMidiMode(1); // C5 -> Minor
-        else if (data1 === 48) setMidiMode(2); // C3 -> Dom7
+        if (data1 === 60) setMidiMode(0);
+        else if (data1 === 72) setMidiMode(1);
+        else if (data1 === 48) setMidiMode(2);
         else {
           const rootOffset = data1 % 12;
           let pool: ChordDefinition[] = [];
@@ -249,7 +246,6 @@ const App: React.FC = () => {
       const newState = { ...prev, ...updates };
       localStorage.setItem(STORAGE_KEY, JSON.stringify(newState));
 
-      // Synchronize changes directly to the audio engine
       if (updates.chordVolume !== undefined) audioEngine.setChordVolume(newState.chordVolume);
       if (updates.harpVolume !== undefined) audioEngine.setHarpVolume(newState.harpVolume);
       if (updates.rhythmVolume !== undefined) audioEngine.setRhythmVolume(newState.rhythmVolume);
@@ -288,7 +284,6 @@ const App: React.FC = () => {
       }
       if (updates.harpWaveform !== undefined) {
           audioEngine.setHarpWaveform(newState.harpWaveform);
-          if (newState.currentChord) audioEngine.playChord(newState.currentChord);
       }
       if (updates.vibratoAmount !== undefined || updates.vibratoRate !== undefined) {
           audioEngine.setVibrato(newState.vibratoAmount, newState.vibratoRate);
@@ -394,7 +389,7 @@ const App: React.FC = () => {
               <div className={`w-5 h-5 rounded-full border-2 border-black/40 transition-all duration-700 ${initialized ? 'bg-green-600 shadow-[0_0_20px_rgba(22,163,74,0.6)]' : 'bg-green-950'}`} />
               <div className="w-px h-6 bg-black/15" />
               <div className="flex flex-col">
-                  <span className="text-[10px] font-black text-orange-900/60 tracking-[0.2em] uppercase leading-none">V4.90 OMNI_CORE</span>
+                  <span className="text-[10px] font-black text-orange-900/60 tracking-[0.2em] uppercase leading-none">V4.94 OMNI_CORE</span>
               </div>
             </div>
             <div className="flex flex-col">
