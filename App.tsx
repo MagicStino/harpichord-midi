@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { OmnichordState, ChordDefinition, RhythmPattern, DelayDivision, ChordModeKey } from './types';
 import { 
@@ -21,7 +22,7 @@ const INITIAL_STATE: OmnichordState = {
   chordVolume: 0.50,   
   harpVolume: 0.50,    
   rhythmVolume: 0.50,  
-  bassVolume: 0.35, 
+  bassVolume: 0.25, // Updated to 25% startup volume
   sustain: 0.4,
   tempo: 120,
   rhythm: RhythmPattern.NONE,
@@ -398,7 +399,8 @@ const App: React.FC = () => {
               <div className={`w-5 h-5 rounded-full border-2 border-black/40 transition-all duration-700 ${initialized ? 'bg-green-600 shadow-[0_0_20px_rgba(22,163,74,0.6)]' : 'bg-green-950'}`} />
               <div className="w-px h-6 bg-black/15" />
               <div className="flex flex-col">
-                  <span className="text-[10px] font-black text-orange-900/60 tracking-[0.2em] uppercase leading-none">V5.03 OMNI_CORE</span>
+                  {/* Updated Version to 6.01 */}
+                  <span className="text-[10px] font-black text-orange-900/60 tracking-[0.2em] uppercase leading-none">V6.01 OMNI_CORE</span>
               </div>
             </div>
             <div className="flex flex-col">

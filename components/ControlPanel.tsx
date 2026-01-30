@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useRef } from 'react';
 import { RhythmPattern, OmnichordState, DelayDivision, WaveformType, MidiDevice, ChordModeKey } from '../types';
 import { midiService } from '../services/midiService';
@@ -251,7 +252,8 @@ const ControlPanel: React.FC<ControlPanelProps> = ({ state, onChange, onReset })
                 ))}
               </div>
               <div className="grid grid-cols-2 gap-4 justify-items-center">
-                <Knob label="DRIVE" size="sm" color="orange-500" value={state.tubeDrive} onChange={(v) => onChange({ tubeDrive: v })} />
+                {/* V6.01: Touching the drive knob now automatically turns the tube ON */}
+                <Knob label="DRIVE" size="sm" color="orange-500" value={state.tubeDrive} onChange={(v) => onChange({ tubeDrive: v, tubeEnabled: true })} />
                 <Knob label="WET" size="sm" color="orange-500" value={state.tubeWet} onChange={(v) => onChange({ tubeWet: v })} />
               </div>
             </div>
@@ -284,7 +286,7 @@ const ControlPanel: React.FC<ControlPanelProps> = ({ state, onChange, onReset })
                  <h3 className="text-[11px] text-cyan-400 font-black uppercase tracking-widest italic">DELAY</h3>
                  <div className="grid grid-cols-5 gap-1">
                     {['1/4', '1/4D', '1/4T', '1/8', '1/8D', '1/8T', '1/16', '1/16D', '1/16T', '1/3', '1/5'].map(div => (
-                      <button key={div} onClick={() => onChange({ delayDivision: div as DelayDivision })} className={`px-1 py-1 rounded text-[9px] font-black border-2 transition-all ${state.delayDivision === div ? 'bg-cyan-500 text-black border-cyan-400' : 'text-cyan-500 border-cyan-900/30'}`}>{div}</button>
+                      <button key={div} onClick={() => onChange({ delayDivision: div as DelayDivision })} className={`px-1 py-2 rounded text-[11px] font-black border-2 transition-all ${state.delayDivision === div ? 'bg-cyan-500 text-black border-cyan-400' : 'text-cyan-500 border-cyan-900/30'}`}>{div}</button>
                     ))}
                  </div>
               </div>
