@@ -336,7 +336,7 @@ const ControlPanel: React.FC<ControlPanelProps> = ({ state, onChange, onReset })
                    <h3 className="text-[11px] text-amber-300 tracking-widest text-center uppercase font-black">VIBRATO LFO</h3>
                    <div className="grid grid-cols-2 gap-4 justify-items-center">
                       <Knob label="AMOUNT" size="sm" color="orange-400" labelColor="text-amber-200" value={state.vibratoAmount} onChange={(v) => onChange({ vibratoAmount: v })} />
-                      <Knob label="RATE" size="sm" color="orange-400" labelColor="text-amber-200" value={state.vibratoRate / 20} onChange={(v) => onChange({ vibratoRate: v * 20 })} />
+                      <Knob label="RATE" size="sm" color="orange-400" labelColor="text-amber-200" value={Math.sqrt(state.vibratoRate / 20)} onChange={(v) => onChange({ vibratoRate: (v * v) * 20 })} />
                    </div>
                 </div>
              </div>
@@ -408,6 +408,12 @@ const ControlPanel: React.FC<ControlPanelProps> = ({ state, onChange, onReset })
                           className="w-2/3 accent-indigo-500"
                         />
                       </div>
+                    </div>
+                    {/* Linux Recommendation Note */}
+                    <div className="p-3 bg-black/30 rounded-xl border border-indigo-500/20">
+                      <p className="text-[9px] font-bold text-indigo-400/80 italic leading-relaxed text-center">
+                        PRO TIP: On Linux, we recommend using Chrome (Non-Snap version) for stable MIDI I/O performance.
+                      </p>
                     </div>
                   </div>
                 ) : ioSubTab === 'MIDI IN' ? (
