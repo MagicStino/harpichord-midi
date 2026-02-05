@@ -9,6 +9,7 @@ import {
 } from './constants';
 import { audioEngine } from './services/audioEngine';
 import { midiService } from './services/midiService';
+import { trackEvent, trackEventDebounced } from './services/analytics';
 import ChordGrid from './components/ChordGrid';
 import SonicStrings from './components/SonicStrings';
 import ControlPanel from './components/ControlPanel';
@@ -124,7 +125,6 @@ const App: React.FC = () => {
     if (saved) {
       try {
         const parsed = JSON.parse(saved);
-        // Force silent rhythm on startup
         setState(prev => ({ 
           ...prev, 
           ...parsed, 
@@ -145,6 +145,10 @@ const App: React.FC = () => {
     if (!chord) return;
     initAudioOnInteraction();
     audioEngine.playChord(chord);
+    
+    // Analytics
+    trackEvent({ name: 'chord_press', params: { chord: chord.label, mode: chord.modeName } });
+
     if (state.midiChordOutputId !== 'none') {
       midiService.sendChord(chord, state.midiChordOutputId, state.midiChordChannel);
     }
@@ -155,6 +159,10 @@ const App: React.FC = () => {
     initAudioOnInteraction();
     if (state.currentChord) {
       audioEngine.playHarpNote(state.currentChord, index);
+      
+      // Debounced strum tracking
+      trackEventDebounced({ name: 'strum_interaction', params: { method: state.useTouchpad ? 'touchpad' : 'manual' } }, 5000);
+
       if (state.midiHarpOutputId !== 'none') {
         midiService.sendHarpNote(
           state.currentChord, 
@@ -171,7 +179,7 @@ const App: React.FC = () => {
       setLastStrumNote({ midi: midiNote, time: Date.now() });
       setTouchpadStrumIndex({ index, time: Date.now() });
     }
-  }, [state.currentChord, state.octave, state.harpOctave, state.midiHarpOutputId, state.midiHarpChannel, initAudioOnInteraction]);
+  }, [state.currentChord, state.octave, state.harpOctave, state.midiHarpOutputId, state.midiHarpChannel, state.useTouchpad, initAudioOnInteraction]);
 
   useEffect(() => {
     const handleMidiMessage = (message: Uint8Array, id: string) => {
@@ -218,6 +226,7 @@ const App: React.FC = () => {
             if (chord) {
               handleChordPress(chord);
               setActiveMidiNote(note);
+              trackEventDebounced({ name: 'midi_io_active', params: { input: id, output: state.midiChordOutputId } });
             }
           }
         }
@@ -226,7 +235,7 @@ const App: React.FC = () => {
 
     midiService.addListener(handleMidiMessage);
     return () => midiService.removeListener(handleMidiMessage);
-  }, [state.midiInputId, state.midiOctaveMap, handleChordPress]);
+  }, [state.midiInputId, state.midiOctaveMap, state.midiChordOutputId, handleChordPress]);
 
   useEffect(() => {
     if (!state.useTouchpad) {
@@ -256,6 +265,7 @@ const App: React.FC = () => {
     setLastStrumNote(null);
     setTouchpadStrumIndex(null);
     setActiveMidiNote(null);
+    trackEvent({ name: 'kill_switch', params: {} });
   }, [state.midiChordOutputId, state.midiChordChannel]);
 
   const handleStateChange = useCallback((updates: Partial<OmnichordState>) => {
@@ -263,6 +273,13 @@ const App: React.FC = () => {
       const newState = { ...prev, ...updates };
       localStorage.setItem(STORAGE_KEY, JSON.stringify(newState));
       
+      // Track significant state changes
+      Object.entries(updates).forEach(([key, val]) => {
+        if (typeof val === 'number' || typeof val === 'string' || typeof val === 'boolean') {
+          trackEventDebounced({ name: 'control_change', params: { parameter: key, value: val as any } }, 2000);
+        }
+      });
+
       if (updates.chordVolume !== undefined) audioEngine.setChordVolume(newState.chordVolume);
       if (updates.harpVolume !== undefined) audioEngine.setHarpVolume(newState.harpVolume);
       if (updates.rhythmVolume !== undefined) audioEngine.setRhythmVolume(newState.rhythmVolume);
@@ -279,6 +296,7 @@ const App: React.FC = () => {
         if (newState.rhythm === RhythmPattern.NONE) {
           audioEngine.stopRhythm();
         } else {
+          trackEvent({ name: 'rhythm_change', params: { pattern: newState.rhythm, tempo: newState.tempo } });
           initAudioOnInteraction().then(() => {
             audioEngine.startRhythm(newState.rhythm);
           });
@@ -316,6 +334,9 @@ const App: React.FC = () => {
       if (updates.reverbSize !== undefined || updates.reverbDamp !== undefined || updates.reverbWidth !== undefined || updates.reverbColor !== undefined) {
           audioEngine.updateReverb(newState.reverbSize, newState.reverbDamp, newState.reverbWidth, newState.reverbColor);
       }
+      if (updates.useTouchpad !== undefined) {
+        trackEvent({ name: 'touchpad_toggle', params: { enabled: updates.useTouchpad } });
+      }
       const sendKeys = ['chordDelaySend', 'chordReverbSend', 'harpDelaySend', 'harpReverbSend', 'rhythmDelaySend', 'rhythmReverbSend'];
       if (sendKeys.some(k => updates.hasOwnProperty(k))) {
           audioEngine.setSends({
@@ -333,11 +354,11 @@ const App: React.FC = () => {
     localStorage.removeItem(STORAGE_KEY);
     audioEngine.stopChord(true);
     audioEngine.stopRhythm();
-    // Explicitly sync the audio engine back to defaults
     syncEngine(INITIAL_STATE);
     setLastStrumNote(null);
     setTouchpadStrumIndex(null);
     setActiveMidiNote(null);
+    trackEvent({ name: 'factory_reset', params: {} });
   }, [syncEngine]);
 
   useEffect(() => {
@@ -403,7 +424,7 @@ const App: React.FC = () => {
               <div className={`w-5 h-5 rounded-full border-2 border-black/40 transition-all duration-700 ${initialized ? 'bg-green-600 shadow-[0_0_20px_rgba(22,163,74,0.6)]' : 'bg-green-950'}`} />
               <div className="w-px h-6 bg-black/15" />
               <div className="flex flex-col">
-                  <span className="text-[10px] font-black text-orange-900/60 tracking-[0.2em] uppercase leading-none">V6.07 HARPICHORD</span>
+                  <span className="text-[10px] font-black text-orange-900/60 tracking-[0.2em] uppercase leading-none">V6.08 HARPICHORD</span>
               </div>
             </div>
             <div className="flex flex-col">
